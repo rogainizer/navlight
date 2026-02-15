@@ -13,6 +13,11 @@
             </div>
             <div class="booking-dates">{{ formatDisplayDate(booking.pickupDate) }} → {{ formatDisplayDate(booking.returnDate) }}</div>
             <div class="booking-name">Name: {{ booking.name }}</div>
+            <div class="booking-status-row">
+              <span :class="['status-chip', `status-${normalizeStatus(booking.status)}`]">
+                {{ normalizeStatus(booking.status) }}
+              </span>
+            </div>
           </li>
         </ul>
         <div v-if="month.bookings.length === 0" class="empty">No bookings</div>
@@ -27,6 +32,11 @@ import { format, addMonths, startOfMonth, endOfMonth, isWithinInterval, parseISO
 import { formatDisplayDate } from '../utils/dateFormat.js'
 
 const props = defineProps({ bookings: Array })
+
+function normalizeStatus(status) {
+  if (!status) return 'booked'
+  return status.toLowerCase() === 'confirmed' ? 'booked' : status.toLowerCase()
+}
 
 const now = new Date()
 const months = computed(() => {
@@ -125,6 +135,44 @@ h2 {
 .booking-name {
   margin-top: 2px;
   color: #475569;
+}
+
+.booking-status-row {
+  margin-top: 6px;
+}
+
+.status-chip {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+  border: 1px solid transparent;
+}
+
+.status-booked {
+  color: #0f766e;
+  background: #e6fffb;
+  border-color: #99f6e4;
+}
+
+.status-confirmed {
+  color: #0f766e;
+  background: #e6fffb;
+  border-color: #99f6e4;
+}
+
+.status-pickedup {
+  color: #6d28d9;
+  background: #f3e8ff;
+  border-color: #d8b4fe;
+}
+
+.status-returned {
+  color: #166534;
+  background: #ecfdf3;
+  border-color: #86efac;
 }
 
 .empty {

@@ -16,9 +16,9 @@
             <strong>{{ booking.eventName }}</strong> ({{ booking.navlightSet }})<br>
             Name: {{ booking.name }}<br>
             Pickup: {{ formatDisplayDate(booking.pickupDate) }} | Event: {{ formatDisplayDate(booking.eventDate) }} | Return: {{ formatDisplayDate(booking.returnDate) }}<br>
-            Status: {{ booking.status }}
+            Status: {{ normalizeStatus(booking.status) }}
           </div>
-          <div v-if="booking.status === 'confirmed'">
+          <div v-if="isBookedStatus(booking.status)">
             <button @click="startPickup(booking)">Mark as Picked Up</button>
           </div>
           <div v-if="booking.status === 'pickedup'">
@@ -89,6 +89,16 @@ let currentBooking = null
 const adminPassword = ref('')
 const adminToken = ref(localStorage.getItem('adminToken') || '')
 const loginError = ref('')
+
+function normalizeStatus(status) {
+  if (!status) return 'booked'
+  return status.toLowerCase() === 'confirmed' ? 'booked' : status.toLowerCase()
+}
+
+function isBookedStatus(status) {
+  const normalized = normalizeStatus(status)
+  return normalized === 'booked'
+}
 
 async function login() {
   loginError.value = ''

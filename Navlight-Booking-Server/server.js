@@ -83,7 +83,7 @@ app.post('/bookings', (req, res) => {
     name,
     email,
     eventName,
-    status: 'confirmed',
+    status: 'booked',
   };
   bookings.push(newBooking);
   saveBookings(bookings);
