@@ -3,6 +3,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
+const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = 3001;
@@ -10,6 +11,25 @@ const BOOKINGS_FILE = path.join(__dirname, 'bookings.json');
 
 app.use(cors());
 app.use(express.json());
+
+const smtpHost = process.env.SMTP_HOST;
+const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
+const smtpSecure = process.env.SMTP_SECURE === 'true';
+const smtpUser = process.env.SMTP_USER;
+const smtpPass = process.env.SMTP_PASS;
+const emailFrom = process.env.EMAIL_FROM || smtpUser;
+
+const emailTransporter = smtpHost && smtpUser && smtpPass
+  ? nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass,
+      },
+    })
+  : null;
 
 // Simple admin password (in production, use env var and HTTPS)
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'navlightadmin';
@@ -49,6 +69,32 @@ function saveBookings(bookings) {
   fs.writeFileSync(BOOKINGS_FILE, JSON.stringify(bookings, null, 2));
 }
 
+async function sendBookingConfirmationEmail(booking) {
+  if (!emailTransporter || !emailFrom || !booking?.email) return;
+
+  const subject = `Navlight booking confirmed: ${booking.eventName}`;
+  const text = [
+    `Hi ${booking.name},`,
+    '',
+    'Your Navlight booking has been confirmed.',
+    '',
+    `Event: ${booking.eventName}`,
+    `Navlight set: ${booking.navlightSet}`,
+    `Pickup date: ${booking.pickupDate}`,
+    `Event date: ${booking.eventDate}`,
+    `Return date: ${booking.returnDate}`,
+    '',
+    'Thank you.',
+  ].join('\n');
+
+  await emailTransporter.sendMail({
+    from: emailFrom,
+    to: booking.email,
+    subject,
+    text,
+  });
+}
+
 // GET /bookings
 app.get('/bookings', (req, res) => {
   const bookings = loadBookings();
@@ -56,7 +102,7 @@ app.get('/bookings', (req, res) => {
 });
 
 // POST /bookings
-app.post('/bookings', (req, res) => {
+app.post('/bookings', async (req, res) => {
   const { navlightSet, pickupDate, eventDate, returnDate, name, email, eventName } = req.body;
   // Basic validation
   if (!navlightSet || !pickupDate || !eventDate || !returnDate || !name || !email || !eventName) {
@@ -87,6 +133,13 @@ app.post('/bookings', (req, res) => {
   };
   bookings.push(newBooking);
   saveBookings(bookings);
+
+  try {
+    await sendBookingConfirmationEmail(newBooking);
+  } catch (error) {
+    console.error('Failed to send booking confirmation email:', error.message);
+  }
+
   res.status(201).json(newBooking);
 });
 

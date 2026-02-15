@@ -32,7 +32,7 @@
           <div v-if="booking.status === 'returned'">
             <div>
               Returned: {{ formatDisplayDate(booking.actualReturnDate) }}<br>
-              Missing punches: {{ booking.returnMissingPunches?.join(', ') || 'None' }}
+              Missing punches: {{ getNewReturnMissingPunches(booking).join(', ') || 'None' }}
             </div>
           </div>
           <button @click="startEdit(booking)" class="btn secondary">Edit Booking</button>
@@ -97,14 +97,14 @@
         <div class="date-preview" v-if="editForm.actualPickupDate">Display format: {{ formatDisplayDate(editForm.actualPickupDate) }}</div>
 
         <label>Pickup Missing Punches (comma separated)</label>
-        <input v-model="editForm.pickupMissingPunchesInput" placeholder="e.g. 101,102" />
+        <input v-model="editForm.pickupMissingPunchesInput" placeholder="e.g. 45,64" />
 
         <label>Actual Return Date</label>
         <input v-model="editForm.actualReturnDate" type="date" />
         <div class="date-preview" v-if="editForm.actualReturnDate">Display format: {{ formatDisplayDate(editForm.actualReturnDate) }}</div>
 
         <label>Return Missing Punches (comma separated)</label>
-        <input v-model="editForm.returnMissingPunchesInput" placeholder="e.g. 101,102" />
+        <input v-model="editForm.returnMissingPunchesInput" placeholder="e.g. 45,64" />
 
         <div v-if="editError" class="error">{{ editError }}</div>
         <div class="dialog-actions">
@@ -196,6 +196,17 @@ function isBookedStatus(status) {
   return normalized === 'booked'
 }
 
+function getNewReturnMissingPunches(booking) {
+  const pickupMissing = Array.isArray(booking?.pickupMissingPunches)
+    ? booking.pickupMissingPunches.map(String)
+    : []
+  const returnMissing = Array.isArray(booking?.returnMissingPunches)
+    ? booking.returnMissingPunches.map(String)
+    : []
+
+  return returnMissing.filter((punch) => !pickupMissing.includes(punch))
+}
+
 async function login() {
   loginError.value = ''
   try {
@@ -230,14 +241,16 @@ onMounted(() => {
 
 function startPickup(booking) {
   currentBooking = booking
-  pickupDate.value = ''
+  pickupDate.value = booking.pickupDate || ''
   pickupMissingPunches.value = ''
   showPickupDialog.value = true
 }
 function startReturn(booking) {
   currentBooking = booking
-  returnDate.value = ''
-  returnMissingPunches.value = ''
+  returnDate.value = booking.returnDate || ''
+  returnMissingPunches.value = Array.isArray(booking.pickupMissingPunches)
+    ? booking.pickupMissingPunches.join(', ')
+    : ''
   showReturnDialog.value = true
 }
 
