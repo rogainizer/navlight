@@ -4,6 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
 const nodemailer = require('nodemailer');
+const PDFDocument = require('pdfkit');
+require('dotenv').config();
 
 const app = express();
 const PORT = 3001;
@@ -18,6 +20,10 @@ const smtpSecure = process.env.SMTP_SECURE === 'true';
 const smtpUser = process.env.SMTP_USER;
 const smtpPass = process.env.SMTP_PASS;
 const emailFrom = process.env.EMAIL_FROM || smtpUser;
+const invoiceUnitCharge = process.env.INVOICE_UNIT_CHARGE
+  ? Number(process.env.INVOICE_UNIT_CHARGE)
+  : 2;
+const bankAccountNumber = process.env.BANK_ACCOUNT_NUMBER || '';
 
 const emailTransporter = smtpHost && smtpUser && smtpPass
   ? nodemailer.createTransport({
@@ -93,6 +99,121 @@ async function sendBookingConfirmationEmail(booking) {
     subject,
     text,
   });
+}
+
+function formatDisplayDate(value) {
+  if (!value || typeof value !== 'string') return '';
+  const [year, month, day] = value.split('-');
+  if (!year || !month || !day) return value;
+  return `${day}/${month}/${year}`;
+}
+
+function calculateNewMissingReturnedPunches(booking) {
+  const pickupMissing = Array.isArray(booking.pickupMissingPunches)
+    ? booking.pickupMissingPunches.map(String)
+    : [];
+  const returnMissing = Array.isArray(booking.returnMissingPunches)
+    ? booking.returnMissingPunches.map(String)
+    : [];
+
+  return returnMissing.filter((punch) => !pickupMissing.includes(punch));
+}
+
+function buildInvoiceData(booking) {
+  const competitors = Number(booking.competitorsEntered || 0);
+  const usageCharge = competitors * invoiceUnitCharge;
+  const newMissingPunches = calculateNewMissingReturnedPunches(booking);
+  const missingPunchCharge = newMissingPunches.length * 200;
+  const totalCharge = usageCharge + missingPunchCharge;
+
+  return {
+    eventName: booking.eventName,
+    eventDate: booking.eventDate,
+    eventDateDisplay: formatDisplayDate(booking.eventDate),
+    competitorsEntered: competitors,
+    unitCharge: invoiceUnitCharge,
+    usageCharge,
+    newMissingPunches,
+    missingPunchCharge,
+    totalCharge,
+    bankAccountNumber,
+    paymentReference: booking.eventName,
+  };
+}
+
+function createInvoiceEmailText(booking, invoice) {
+  return [
+    `Hi ${booking.name},`,
+    '',
+    'Please find your Navlight booking invoice details below:',
+    '',
+    `1. Event name: ${invoice.eventName}`,
+    `2. Event date: ${invoice.eventDateDisplay}`,
+    `3. Usage charge: ${invoice.competitorsEntered} competitors × $${invoice.unitCharge.toFixed(2)} = $${invoice.usageCharge.toFixed(2)}`,
+    `4. Missing returned punches charge: ${invoice.newMissingPunches.length} × $200.00 = $${invoice.missingPunchCharge.toFixed(2)}`,
+    `   Newly missing punches: ${invoice.newMissingPunches.join(', ') || 'None'}`,
+    `5. Total charge: $${invoice.totalCharge.toFixed(2)}`,
+    `6. Please pay the total amount to bank account ${invoice.bankAccountNumber} with reference \"${invoice.paymentReference}\".`,
+    '',
+    'Thank you.',
+  ].join('\n');
+}
+
+function buildInvoicePdfBuffer(booking, invoice) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 50 });
+    const chunks = [];
+
+    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    doc.fontSize(20).text('Navlight Booking Invoice', { align: 'left' });
+    doc.moveDown(0.5);
+    doc.fontSize(11).text(`Issued: ${new Date().toLocaleDateString('en-GB')}`);
+    doc.moveDown(1);
+
+    doc.fontSize(12).text(`Name: ${booking.name}`);
+    doc.text(`Email: ${booking.email}`);
+    doc.moveDown(0.7);
+
+    doc.text(`1. Event name: ${invoice.eventName}`);
+    doc.text(`2. Event date: ${invoice.eventDateDisplay}`);
+    doc.text(`3. Usage charge: ${invoice.competitorsEntered} competitors × $${invoice.unitCharge.toFixed(2)} = $${invoice.usageCharge.toFixed(2)}`);
+    doc.text(`4. Missing returned punches charge: ${invoice.newMissingPunches.length} × $200.00 = $${invoice.missingPunchCharge.toFixed(2)}`);
+    doc.text(`   Newly missing punches: ${invoice.newMissingPunches.join(', ') || 'None'}`);
+    doc.text(`5. Total charge: $${invoice.totalCharge.toFixed(2)}`);
+    doc.text(`6. Please pay to bank account ${invoice.bankAccountNumber} with reference "${invoice.paymentReference}".`);
+
+    doc.moveDown(1);
+    doc.text('Thank you.');
+
+    doc.end();
+  });
+}
+
+async function sendInvoiceEmail(booking) {
+  if (!emailTransporter || !emailFrom || !booking?.email) {
+    throw new Error('Email is not configured or recipient email is missing.');
+  }
+
+  if (!bankAccountNumber) {
+    throw new Error('BANK_ACCOUNT_NUMBER environment variable is not set.');
+  }
+
+  const invoice = buildInvoiceData(booking);
+
+  const subject = `Invoice for Navlight booking: ${booking.eventName}`;
+  const text = createInvoiceEmailText(booking, invoice);
+
+  await emailTransporter.sendMail({
+    from: emailFrom,
+    to: booking.email,
+    subject,
+    text,
+  });
+
+  return invoice;
 }
 
 // GET /bookings
@@ -191,6 +312,99 @@ app.delete('/bookings/:id', requireAdmin, (req, res) => {
   bookings = bookings.filter(b => b.id !== id);
   saveBookings(bookings);
   res.status(204).end();
+});
+
+// POST /bookings/:id/send-invoice
+app.get('/bookings/:id/invoice-preview', requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const bookings = loadBookings();
+  const idx = bookings.findIndex(b => b.id === id);
+
+  if (idx === -1) {
+    return res.status(404).json({ error: 'Booking not found.' });
+  }
+
+  const booking = bookings[idx];
+
+  if (booking.status !== 'returned') {
+    return res.status(400).json({ error: 'Invoice can only be created for returned bookings.' });
+  }
+
+  if (booking.competitorsEntered == null || booking.competitorsEntered === '') {
+    return res.status(400).json({ error: 'Competitors entered is required before creating an invoice.' });
+  }
+
+  const invoice = buildInvoiceData(booking);
+  return res.json({ invoice });
+});
+
+// GET /bookings/:id/invoice-pdf
+app.get('/bookings/:id/invoice-pdf', requireAdmin, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const bookings = loadBookings();
+  const idx = bookings.findIndex(b => b.id === id);
+
+  if (idx === -1) {
+    return res.status(404).json({ error: 'Booking not found.' });
+  }
+
+  const booking = bookings[idx];
+
+  if (booking.status !== 'returned') {
+    return res.status(400).json({ error: 'Invoice can only be created for returned bookings.' });
+  }
+
+  if (booking.competitorsEntered == null || booking.competitorsEntered === '') {
+    return res.status(400).json({ error: 'Competitors entered is required before creating an invoice.' });
+  }
+
+  if (!bankAccountNumber) {
+    return res.status(400).json({ error: 'BANK_ACCOUNT_NUMBER environment variable is not set.' });
+  }
+
+  try {
+    const invoice = buildInvoiceData(booking);
+    const pdfBuffer = await buildInvoicePdfBuffer(booking, invoice);
+    const safeEventName = String(booking.eventName || 'invoice').replace(/[^a-zA-Z0-9-_]/g, '_');
+    const filename = `invoice-${safeEventName}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(pdfBuffer);
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'Failed to generate invoice PDF.' });
+  }
+});
+
+// POST /bookings/:id/send-invoice
+app.post('/bookings/:id/send-invoice', requireAdmin, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const bookings = loadBookings();
+  const idx = bookings.findIndex(b => b.id === id);
+
+  if (idx === -1) {
+    return res.status(404).json({ error: 'Booking not found.' });
+  }
+
+  const booking = bookings[idx];
+
+  if (booking.status !== 'returned') {
+    return res.status(400).json({ error: 'Invoice can only be created for returned bookings.' });
+  }
+
+  if (booking.competitorsEntered == null || booking.competitorsEntered === '') {
+    return res.status(400).json({ error: 'Competitors entered is required before creating an invoice.' });
+  }
+
+  try {
+    const invoice = await sendInvoiceEmail(booking);
+    booking.invoiceSentAt = new Date().toISOString();
+    bookings[idx] = booking;
+    saveBookings(bookings);
+    return res.json({ success: true, invoice });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'Failed to send invoice email.' });
+  }
 });
 
 app.listen(PORT, () => {

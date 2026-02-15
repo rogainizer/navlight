@@ -12,6 +12,9 @@ This Node.js backend provides REST API endpoints for booking Navlight sets. Book
 ## Endpoints
 - `GET /bookings` — List all bookings
 - `POST /bookings` — Create a new booking
+- `GET /bookings/:id/invoice-preview` — Preview invoice details for a returned booking (admin token required)
+- `GET /bookings/:id/invoice-pdf` — Download invoice PDF for a returned booking (admin token required)
+- `POST /bookings/:id/send-invoice` — Send invoice email for a returned booking (admin token required)
 
 ## Setup
 1. Run `npm install` to install dependencies
@@ -27,6 +30,8 @@ To send a confirmation email to the person who makes a booking, set these enviro
 - `SMTP_USER` (SMTP username/login)
 - `SMTP_PASS` (SMTP password/app password)
 - `EMAIL_FROM` (optional sender address; defaults to `SMTP_USER`)
+- `BANK_ACCOUNT_NUMBER` (required to send invoice emails)
+- `INVOICE_UNIT_CHARGE` (optional, defaults to `2` dollars per competitor)
 
 If SMTP values are not set, booking creation still works and no email is sent.
 

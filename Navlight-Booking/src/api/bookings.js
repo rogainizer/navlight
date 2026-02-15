@@ -36,6 +36,48 @@ export async function deleteBooking(id, adminToken) {
     throw new Error(error.error || 'Failed to delete booking');
   }
 }
+
+export async function sendInvoice(id, adminToken) {
+  const res = await fetch(`${API_URL}/bookings/${id}/send-invoice`, {
+    method: 'POST',
+    headers: adminToken ? { 'x-admin-token': adminToken } : {},
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to send invoice');
+  }
+  return await res.json();
+}
+
+export async function fetchInvoicePreview(id, adminToken) {
+  const res = await fetch(`${API_URL}/bookings/${id}/invoice-preview`, {
+    method: 'GET',
+    headers: adminToken ? { 'x-admin-token': adminToken } : {},
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to load invoice preview');
+  }
+  return await res.json();
+}
+
+export async function fetchInvoicePdf(id, adminToken) {
+  const res = await fetch(`${API_URL}/bookings/${id}/invoice-pdf`, {
+    method: 'GET',
+    headers: adminToken ? { 'x-admin-token': adminToken } : {},
+  });
+  if (!res.ok) {
+    let errorMessage = 'Failed to download invoice PDF';
+    try {
+      const error = await res.json();
+      errorMessage = error.error || errorMessage;
+    } catch {
+      // keep default message
+    }
+    throw new Error(errorMessage);
+  }
+  return await res.blob();
+}
 // api/bookings.js
 // Placeholder for API integration
 

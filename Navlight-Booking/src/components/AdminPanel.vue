@@ -11,6 +11,7 @@
     </div>
     <div v-else>
       <div v-if="actionError" class="error action-error">{{ actionError }}</div>
+      <div v-if="actionSuccess" class="success action-success">{{ actionSuccess }}</div>
       <ul v-if="bookings.length">
         <li v-for="booking in bookings" :key="booking.id" class="admin-booking">
           <div>
@@ -32,8 +33,10 @@
           <div v-if="booking.status === 'returned'">
             <div>
               Returned: {{ formatDisplayDate(booking.actualReturnDate) }}<br>
-              Missing punches: {{ getNewReturnMissingPunches(booking).join(', ') || 'None' }}
+              Missing punches: {{ getNewReturnMissingPunches(booking).join(', ') || 'None' }}<br>
+              Competitors entered: {{ booking.competitorsEntered ?? 'Not set' }}
             </div>
+            <button @click="openInvoicePreview(booking)" class="btn">Create Invoice</button>
           </div>
           <button @click="startEdit(booking)" class="btn secondary">Edit Booking</button>
           <button @click="confirmDelete(booking)" class="btn danger">Delete Booking</button>
@@ -52,6 +55,40 @@
         <div class="dialog-actions">
           <button @click="runDelete" class="btn danger">Yes, Delete</button>
           <button @click="cancelDelete" class="btn secondary">Cancel</button>
+        </div>
+      </div>
+
+      <div v-if="showInvoiceDialog" class="dialog invoice-dialog">
+        <h3>Invoice Preview</h3>
+
+        <div v-if="invoicePreviewLoading">Loading invoice preview...</div>
+        <div v-else-if="invoicePreviewError" class="error">{{ invoicePreviewError }}</div>
+        <div v-else-if="invoicePreview">
+          <p><strong>1. Event name:</strong> {{ invoicePreview.eventName }}</p>
+          <p><strong>2. Event date:</strong> {{ invoicePreview.eventDateDisplay }}</p>
+          <p>
+            <strong>3. Usage charge:</strong>
+            {{ invoicePreview.competitorsEntered }} × ${{ Number(invoicePreview.unitCharge).toFixed(2) }}
+            = ${{ Number(invoicePreview.usageCharge).toFixed(2) }}
+          </p>
+          <p>
+            <strong>4. Missing returned punches:</strong>
+            {{ invoicePreview.newMissingPunches.length }} × $200.00
+            = ${{ Number(invoicePreview.missingPunchCharge).toFixed(2) }}
+          </p>
+          <p><strong>Missing punches list:</strong> {{ invoicePreview.newMissingPunches.join(', ') || 'None' }}</p>
+          <p><strong>5. Total charge:</strong> ${{ Number(invoicePreview.totalCharge).toFixed(2) }}</p>
+          <p>
+            <strong>6. Payment instructions:</strong>
+            Pay to bank account {{ invoicePreview.bankAccountNumber || 'Not configured' }}
+            with reference "{{ invoicePreview.paymentReference }}".
+          </p>
+        </div>
+
+        <div class="dialog-actions">
+          <button @click="downloadInvoicePdfFromPreview" class="btn secondary" :disabled="invoicePreviewLoading || !invoicePreview">Download PDF</button>
+          <button @click="sendInvoiceFromPreview" class="btn" :disabled="invoicePreviewLoading || !invoicePreview">Send Invoice Email</button>
+          <button @click="closeInvoicePreview" class="btn secondary">Cancel</button>
         </div>
       </div>
 
@@ -106,6 +143,9 @@
         <label>Return Missing Punches (comma separated)</label>
         <input v-model="editForm.returnMissingPunchesInput" placeholder="e.g. 45,64" />
 
+        <label>Competitors Entered</label>
+        <input type="number" min="0" step="1" v-model="editForm.competitorsEntered" placeholder="e.g. 120" />
+
         <div v-if="editError" class="error">{{ editError }}</div>
         <div class="dialog-actions">
           <button @click="saveEdit" class="btn">Save</button>
@@ -134,6 +174,8 @@
         <label>Date of Return</label>
         <input type="date" v-model="returnDate" />
         <div class="date-preview" v-if="returnDate">Display format: {{ formatDisplayDate(returnDate) }}</div>
+        <label>Number of Competitors Entered</label>
+        <input type="number" min="0" step="1" v-model="competitorsEntered" placeholder="e.g. 120" />
         <label>Missing Punch Numbers (comma separated)
           <input v-model="returnMissingPunches" placeholder="e.g. 101,102" />
         </label>
@@ -148,7 +190,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { fetchBookings, updateBooking, deleteBooking as apiDeleteBooking, adminLogin } from '../api/bookings.js'
+import { fetchBookings, updateBooking, deleteBooking as apiDeleteBooking, adminLogin, sendInvoice, fetchInvoicePreview, fetchInvoicePdf } from '../api/bookings.js'
 import { formatDisplayDate } from '../utils/dateFormat.js'
 
 const emit = defineEmits(['bookings-updated'])
@@ -158,10 +200,12 @@ const showPickupDialog = ref(false)
 const showReturnDialog = ref(false)
 const showEditDialog = ref(false)
 const showDeleteDialog = ref(false)
+const showInvoiceDialog = ref(false)
 const pickupDate = ref('')
 const pickupMissingPunches = ref('')
 const returnDate = ref('')
 const returnMissingPunches = ref('')
+const competitorsEntered = ref('')
 const editError = ref('')
 const editForm = ref({
   id: null,
@@ -177,6 +221,7 @@ const editForm = ref({
   pickupMissingPunchesInput: '',
   actualReturnDate: '',
   returnMissingPunchesInput: '',
+  competitorsEntered: '',
 })
 let currentBooking = null
 const pendingDeleteBooking = ref(null)
@@ -185,6 +230,11 @@ const adminPassword = ref('')
 const adminToken = ref(localStorage.getItem('adminToken') || '')
 const loginError = ref('')
 const actionError = ref('')
+const actionSuccess = ref('')
+const invoicePreview = ref(null)
+const invoicePreviewError = ref('')
+const invoicePreviewLoading = ref(false)
+const pendingInvoiceBooking = ref(null)
 
 function normalizeStatus(status) {
   if (!status) return 'booked'
@@ -235,6 +285,11 @@ function handleAdminError(error, fallbackMessage) {
   actionError.value = message
 }
 
+function clearActionMessages() {
+  actionError.value = ''
+  actionSuccess.value = ''
+}
+
 onMounted(() => {
   if (adminToken.value) loadBookings()
 })
@@ -248,6 +303,7 @@ function startPickup(booking) {
 function startReturn(booking) {
   currentBooking = booking
   returnDate.value = booking.returnDate || ''
+  competitorsEntered.value = booking.competitorsEntered != null ? String(booking.competitorsEntered) : ''
   returnMissingPunches.value = Array.isArray(booking.pickupMissingPunches)
     ? booking.pickupMissingPunches.join(', ')
     : ''
@@ -270,6 +326,7 @@ function startEdit(booking) {
     pickupMissingPunchesInput: Array.isArray(booking.pickupMissingPunches) ? booking.pickupMissingPunches.join(', ') : '',
     actualReturnDate: booking.actualReturnDate || '',
     returnMissingPunchesInput: Array.isArray(booking.returnMissingPunches) ? booking.returnMissingPunches.join(', ') : '',
+    competitorsEntered: booking.competitorsEntered != null ? String(booking.competitorsEntered) : '',
   }
   showEditDialog.value = true
 }
@@ -281,7 +338,7 @@ function cancelEdit() {
 
 async function saveEdit() {
   editError.value = ''
-  actionError.value = ''
+  clearActionMessages()
   if (!editForm.value.id) return
 
   try {
@@ -304,6 +361,7 @@ async function saveEdit() {
         .split(',')
         .map(s => s.trim())
         .filter(Boolean),
+      competitorsEntered: editForm.value.competitorsEntered === '' ? undefined : Number(editForm.value.competitorsEntered),
     }, adminToken.value)
 
     await loadBookings()
@@ -323,7 +381,7 @@ function cancelDialog() {
 }
 async function confirmPickup() {
   if (!currentBooking) return
-  actionError.value = ''
+  clearActionMessages()
   try {
     await updateBooking(currentBooking.id, {
       status: 'pickedup',
@@ -340,11 +398,12 @@ async function confirmPickup() {
 }
 async function confirmReturn() {
   if (!currentBooking) return
-  actionError.value = ''
+  clearActionMessages()
   try {
     await updateBooking(currentBooking.id, {
       status: 'returned',
       actualReturnDate: returnDate.value,
+      competitorsEntered: competitorsEntered.value === '' ? undefined : Number(competitorsEntered.value),
       returnMissingPunches: returnMissingPunches.value.split(',').map(s => s.trim()).filter(Boolean),
     }, adminToken.value)
     await loadBookings()
@@ -368,7 +427,7 @@ function cancelDelete() {
 
 async function runDelete() {
   if (!pendingDeleteBooking.value) return
-  actionError.value = ''
+  clearActionMessages()
   try {
     await apiDeleteBooking(pendingDeleteBooking.value.id, adminToken.value)
     await loadBookings()
@@ -377,6 +436,67 @@ async function runDelete() {
     pendingDeleteBooking.value = null
   } catch (e) {
     handleAdminError(e, 'Failed to delete booking.')
+  }
+}
+
+async function openInvoicePreview(booking) {
+  clearActionMessages()
+  invoicePreviewError.value = ''
+  invoicePreview.value = null
+  pendingInvoiceBooking.value = booking
+  showInvoiceDialog.value = true
+  invoicePreviewLoading.value = true
+
+  try {
+    const data = await fetchInvoicePreview(booking.id, adminToken.value)
+    invoicePreview.value = data.invoice
+  } catch (e) {
+    invoicePreviewError.value = e?.message || 'Failed to load invoice preview.'
+  } finally {
+    invoicePreviewLoading.value = false
+  }
+}
+
+function closeInvoicePreview() {
+  showInvoiceDialog.value = false
+  invoicePreview.value = null
+  invoicePreviewError.value = ''
+  invoicePreviewLoading.value = false
+  pendingInvoiceBooking.value = null
+}
+
+async function sendInvoiceFromPreview() {
+  if (!pendingInvoiceBooking.value) return
+
+  clearActionMessages()
+  try {
+    await sendInvoice(pendingInvoiceBooking.value.id, adminToken.value)
+    actionSuccess.value = `Invoice sent to ${pendingInvoiceBooking.value.email}`
+    await loadBookings()
+    emit('bookings-updated')
+    closeInvoicePreview()
+  } catch (e) {
+    handleAdminError(e, 'Failed to create invoice.')
+  }
+}
+
+async function downloadInvoicePdfFromPreview() {
+  if (!pendingInvoiceBooking.value) return
+
+  clearActionMessages()
+  try {
+    const blob = await fetchInvoicePdf(pendingInvoiceBooking.value.id, adminToken.value)
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const safeEventName = String(pendingInvoiceBooking.value.eventName || 'invoice').replace(/[^a-zA-Z0-9-_]/g, '_')
+    link.href = url
+    link.download = `invoice-${safeEventName}.pdf`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch (e) {
+    handleAdminError(e, 'Failed to download invoice PDF.')
   }
 }
 </script>
@@ -486,6 +606,16 @@ input:focus {
 
 .delete-dialog {
   min-width: 420px;
+}
+
+.invoice-dialog {
+  min-width: 520px;
+  max-width: 620px;
+}
+
+.invoice-dialog p {
+  margin: 0;
+  color: #334155;
 }
 
 .delete-copy {
