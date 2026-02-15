@@ -63,6 +63,43 @@ app.post('/bookings', (req, res) => {
   res.status(201).json(newBooking);
 });
 
+
+// PATCH /bookings/:id (update pickup/return info)
+app.patch('/bookings/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const bookings = loadBookings();
+  const idx = bookings.findIndex(b => b.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Booking not found.' });
+  const booking = bookings[idx];
+  // Allow updating status, actualPickupDate, pickupMissingPunches, actualReturnDate, returnMissingPunches
+  const {
+    status,
+    actualPickupDate,
+    pickupMissingPunches,
+    actualReturnDate,
+    returnMissingPunches
+  } = req.body;
+  if (status) booking.status = status;
+  if (actualPickupDate) booking.actualPickupDate = actualPickupDate;
+  if (pickupMissingPunches) booking.pickupMissingPunches = pickupMissingPunches;
+  if (actualReturnDate) booking.actualReturnDate = actualReturnDate;
+  if (returnMissingPunches) booking.returnMissingPunches = returnMissingPunches;
+  bookings[idx] = booking;
+  saveBookings(bookings);
+  res.json(booking);
+});
+
+// DELETE /bookings/:id
+app.delete('/bookings/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  let bookings = loadBookings();
+  const idx = bookings.findIndex(b => b.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Booking not found.' });
+  bookings = bookings.filter(b => b.id !== id);
+  saveBookings(bookings);
+  res.status(204).end();
+});
+
 app.listen(PORT, () => {
   console.log(`Navlight Booking backend running on port ${PORT}`);
 });

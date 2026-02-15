@@ -1,3 +1,25 @@
+export async function updateBooking(id, updates) {
+  const res = await fetch(`${API_URL}/bookings/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to update booking');
+  }
+  return await res.json();
+}
+
+export async function deleteBooking(id) {
+  const res = await fetch(`${API_URL}/bookings/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok && res.status !== 204) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to delete booking');
+  }
+}
 // api/bookings.js
 // Placeholder for API integration
 

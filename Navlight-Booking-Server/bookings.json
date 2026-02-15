@@ -8,6 +8,17 @@
     "name": "DJW",
     "email": "djjw@Qbla.com",
     "eventName": "Test",
-    "status": "confirmed"
+    "status": "returned",
+    "actualPickupDate": "2026-02-17",
+    "pickupMissingPunches": [
+      "20",
+      "12"
+    ],
+    "actualReturnDate": "2026-02-28",
+    "returnMissingPunches": [
+      "20",
+      "12",
+      "45"
+    ]
   }
 ]

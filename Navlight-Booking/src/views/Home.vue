@@ -1,14 +1,18 @@
 
 <template>
   <div class="menu">
-    <button @click="showBookingForm = false">View Calendar</button>
-    <button @click="showBookingForm = true">Book Navlight</button>
+    <button @click="view = 'calendar'">View Calendar</button>
+    <button @click="view = 'booking'">Book Navlight</button>
+    <button @click="view = 'admin'">Admin</button>
   </div>
-  <div v-if="!showBookingForm">
+  <div v-if="view === 'calendar'">
     <BookingCalendar :bookings="bookings" />
   </div>
-  <div v-else>
+  <div v-else-if="view === 'booking'">
     <BookingForm @booking-success="refreshBookings" />
+  </div>
+  <div v-else-if="view === 'admin'">
+    <AdminPanel />
   </div>
 </template>
 
@@ -16,14 +20,15 @@
 import { ref, onMounted } from 'vue'
 import BookingForm from '../components/BookingForm.vue'
 import BookingCalendar from '../components/BookingCalendar.vue'
+import AdminPanel from '../components/AdminPanel.vue'
 import { fetchBookings } from '../api/bookings.js'
 
-const showBookingForm = ref(false)
+const view = ref('calendar')
 const bookings = ref([])
 
 async function refreshBookings() {
   bookings.value = await fetchBookings()
-  showBookingForm.value = false
+  view.value = 'calendar'
 }
 
 onMounted(refreshBookings)
