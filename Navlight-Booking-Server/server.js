@@ -97,23 +97,36 @@ app.patch('/bookings/:id', requireAdmin, (req, res) => {
   const bookings = loadBookings();
   const idx = bookings.findIndex(b => b.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Booking not found.' });
-  const booking = bookings[idx];
-  // Allow updating status, actualPickupDate, pickupMissingPunches, actualReturnDate, returnMissingPunches
-  const {
-    status,
-    actualPickupDate,
-    pickupMissingPunches,
-    actualReturnDate,
-    returnMissingPunches
-  } = req.body;
-  if (status) booking.status = status;
-  if (actualPickupDate) booking.actualPickupDate = actualPickupDate;
-  if (pickupMissingPunches) booking.pickupMissingPunches = pickupMissingPunches;
-  if (actualReturnDate) booking.actualReturnDate = actualReturnDate;
-  if (returnMissingPunches) booking.returnMissingPunches = returnMissingPunches;
-  bookings[idx] = booking;
+
+  const currentBooking = bookings[idx];
+  const updatedBooking = {
+    ...currentBooking,
+    ...req.body,
+  };
+
+  const { navlightSet, pickupDate, eventDate, returnDate, name, email, eventName } = updatedBooking;
+
+  if (!navlightSet || !pickupDate || !eventDate || !returnDate || !name || !email || !eventName) {
+    return res.status(400).json({ error: 'All core booking fields are required.' });
+  }
+
+  if (!(pickupDate <= eventDate && eventDate <= returnDate)) {
+    return res.status(400).json({ error: 'Dates must be in order: Pickup ≤ Event ≤ Return.' });
+  }
+
+  const overlap = bookings.some(b =>
+    b.id !== id &&
+    b.navlightSet === navlightSet &&
+    !(returnDate < b.pickupDate || pickupDate > b.returnDate)
+  );
+
+  if (overlap) {
+    return res.status(409).json({ error: 'Navlight set is already booked for these dates.' });
+  }
+
+  bookings[idx] = updatedBooking;
   saveBookings(bookings);
-  res.json(booking);
+  res.json(updatedBooking);
 });
 
 // DELETE /bookings/:id

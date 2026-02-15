@@ -34,10 +34,69 @@
               Missing punches: {{ booking.returnMissingPunches?.join(', ') || 'None' }}
             </div>
           </div>
+          <button @click="startEdit(booking)" class="btn secondary">Edit Booking</button>
           <button @click="deleteBooking(booking.id)" class="btn danger">Delete Booking</button>
         </li>
       </ul>
       <div v-else>No bookings found.</div>
+
+      <div v-if="showEditDialog" class="dialog edit-dialog">
+        <h3>Edit Booking</h3>
+
+        <label>Name</label>
+        <input v-model="editForm.name" />
+
+        <label>Email</label>
+        <input v-model="editForm.email" type="email" />
+
+        <label>Navlight Event Name</label>
+        <input v-model="editForm.eventName" />
+
+        <label>Navlight Set</label>
+        <select v-model="editForm.navlightSet">
+          <option value="Set1">Set 1</option>
+          <option value="Set2">Set 2</option>
+        </select>
+
+        <label>Pickup Date</label>
+        <input v-model="editForm.pickupDate" type="date" />
+        <div class="date-preview" v-if="editForm.pickupDate">Display format: {{ formatDisplayDate(editForm.pickupDate) }}</div>
+
+        <label>Event Date</label>
+        <input v-model="editForm.eventDate" type="date" />
+        <div class="date-preview" v-if="editForm.eventDate">Display format: {{ formatDisplayDate(editForm.eventDate) }}</div>
+
+        <label>Return Date</label>
+        <input v-model="editForm.returnDate" type="date" />
+        <div class="date-preview" v-if="editForm.returnDate">Display format: {{ formatDisplayDate(editForm.returnDate) }}</div>
+
+        <label>Status</label>
+        <select v-model="editForm.status">
+          <option value="booked">booked</option>
+          <option value="pickedup">pickedup</option>
+          <option value="returned">returned</option>
+        </select>
+
+        <label>Actual Pickup Date</label>
+        <input v-model="editForm.actualPickupDate" type="date" />
+        <div class="date-preview" v-if="editForm.actualPickupDate">Display format: {{ formatDisplayDate(editForm.actualPickupDate) }}</div>
+
+        <label>Pickup Missing Punches (comma separated)</label>
+        <input v-model="editForm.pickupMissingPunchesInput" placeholder="e.g. 101,102" />
+
+        <label>Actual Return Date</label>
+        <input v-model="editForm.actualReturnDate" type="date" />
+        <div class="date-preview" v-if="editForm.actualReturnDate">Display format: {{ formatDisplayDate(editForm.actualReturnDate) }}</div>
+
+        <label>Return Missing Punches (comma separated)</label>
+        <input v-model="editForm.returnMissingPunchesInput" placeholder="e.g. 101,102" />
+
+        <div v-if="editError" class="error">{{ editError }}</div>
+        <div class="dialog-actions">
+          <button @click="saveEdit" class="btn">Save</button>
+          <button @click="cancelEdit" class="btn secondary">Cancel</button>
+        </div>
+      </div>
 
       <!-- Pickup Dialog -->
       <div v-if="showPickupDialog" class="dialog">
@@ -80,10 +139,27 @@ import { formatDisplayDate } from '../utils/dateFormat.js'
 const bookings = ref([])
 const showPickupDialog = ref(false)
 const showReturnDialog = ref(false)
+const showEditDialog = ref(false)
 const pickupDate = ref('')
 const pickupMissingPunches = ref('')
 const returnDate = ref('')
 const returnMissingPunches = ref('')
+const editError = ref('')
+const editForm = ref({
+  id: null,
+  name: '',
+  email: '',
+  eventName: '',
+  navlightSet: 'Set1',
+  pickupDate: '',
+  eventDate: '',
+  returnDate: '',
+  status: 'booked',
+  actualPickupDate: '',
+  pickupMissingPunchesInput: '',
+  actualReturnDate: '',
+  returnMissingPunchesInput: '',
+})
 let currentBooking = null
 
 const adminPassword = ref('')
@@ -132,6 +208,65 @@ function startReturn(booking) {
   returnMissingPunches.value = ''
   showReturnDialog.value = true
 }
+
+function startEdit(booking) {
+  editError.value = ''
+  editForm.value = {
+    id: booking.id,
+    name: booking.name || '',
+    email: booking.email || '',
+    eventName: booking.eventName || '',
+    navlightSet: booking.navlightSet || 'Set1',
+    pickupDate: booking.pickupDate || '',
+    eventDate: booking.eventDate || '',
+    returnDate: booking.returnDate || '',
+    status: normalizeStatus(booking.status),
+    actualPickupDate: booking.actualPickupDate || '',
+    pickupMissingPunchesInput: Array.isArray(booking.pickupMissingPunches) ? booking.pickupMissingPunches.join(', ') : '',
+    actualReturnDate: booking.actualReturnDate || '',
+    returnMissingPunchesInput: Array.isArray(booking.returnMissingPunches) ? booking.returnMissingPunches.join(', ') : '',
+  }
+  showEditDialog.value = true
+}
+
+function cancelEdit() {
+  showEditDialog.value = false
+  editError.value = ''
+}
+
+async function saveEdit() {
+  editError.value = ''
+  if (!editForm.value.id) return
+
+  try {
+    await updateBooking(editForm.value.id, {
+      name: editForm.value.name,
+      email: editForm.value.email,
+      eventName: editForm.value.eventName,
+      navlightSet: editForm.value.navlightSet,
+      pickupDate: editForm.value.pickupDate,
+      eventDate: editForm.value.eventDate,
+      returnDate: editForm.value.returnDate,
+      status: editForm.value.status,
+      actualPickupDate: editForm.value.actualPickupDate || undefined,
+      pickupMissingPunches: editForm.value.pickupMissingPunchesInput
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean),
+      actualReturnDate: editForm.value.actualReturnDate || undefined,
+      returnMissingPunches: editForm.value.returnMissingPunchesInput
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean),
+    }, adminToken.value)
+
+    await loadBookings()
+    showEditDialog.value = false
+  } catch (e) {
+    editError.value = e.message || 'Failed to update booking.'
+  }
+}
+
 function cancelDialog() {
   showPickupDialog.value = false
   showReturnDialog.value = false
@@ -193,6 +328,20 @@ input {
   background: #ffffff;
 }
 
+select {
+  border: 1px solid #d3dce8;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: #ffffff;
+}
+
+select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
 input:focus {
   outline: none;
   border-color: #3b82f6;
@@ -246,6 +395,12 @@ input:focus {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.edit-dialog {
+  max-height: 80vh;
+  overflow-y: auto;
+  min-width: 460px;
 }
 
 .login-card {
