@@ -37,7 +37,10 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, defineEmits } from 'vue'
+import { createBooking } from '../api/bookings.js'
+
+const emit = defineEmits(['booking-success'])
 
 const form = ref({
   name: '',
@@ -50,6 +53,7 @@ const form = ref({
 })
 
 const error = ref('')
+const success = ref('')
 
 function validateDates() {
   if (!form.value.pickupDate || !form.value.eventDate || !form.value.returnDate) return false
@@ -59,14 +63,30 @@ function validateDates() {
   )
 }
 
-function submitBooking() {
+async function submitBooking() {
   error.value = ''
+  success.value = ''
   if (!validateDates()) {
     error.value = 'Dates must be in order: Pickup ≤ Event ≤ Return.'
     return
   }
-  // TODO: Add API call to submit booking
-  alert('Booking submitted!')
+  try {
+    await createBooking({ ...form.value })
+    success.value = 'Booking submitted!'
+    emit('booking-success')
+    // Optionally, reset form
+    form.value = {
+      name: '',
+      email: '',
+      eventName: '',
+      pickupDate: '',
+      eventDate: '',
+      returnDate: '',
+      navlightSet: '',
+    }
+  } catch (e) {
+    error.value = e.message || 'Failed to submit booking.'
+  }
 }
 </script>
 

@@ -1,33 +1,23 @@
 // api/bookings.js
 // Placeholder for API integration
 
+const API_URL = 'http://localhost:3001';
+
 export async function fetchBookings() {
-  // TODO: Replace with real API call
-  return [
-    {
-      id: 1,
-      navlightSet: 'Set1',
-      pickupDate: '2026-03-01',
-      eventDate: '2026-03-02',
-      returnDate: '2026-03-03',
-      name: 'Alice',
-      email: 'alice@example.com',
-      eventName: 'Rogaine Night',
-    },
-    {
-      id: 2,
-      navlightSet: 'Set2',
-      pickupDate: '2026-03-05',
-      eventDate: '2026-03-06',
-      returnDate: '2026-03-07',
-      name: 'Bob',
-      email: 'bob@example.com',
-      eventName: 'Navlight Challenge',
-    },
-  ]
+  const res = await fetch(`${API_URL}/bookings`);
+  if (!res.ok) throw new Error('Failed to fetch bookings');
+  return await res.json();
 }
 
 export async function createBooking(booking) {
-  // TODO: Replace with real API call
-  return { success: true, booking }
+  const res = await fetch(`${API_URL}/bookings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(booking),
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to create booking');
+  }
+  return await res.json();
 }

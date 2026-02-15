@@ -15,34 +15,23 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { fetchBookings } from '../api/bookings.js'
 
 const bookings = ref([])
+const error = ref('')
 
-onMounted(() => {
-  // TODO: Replace with API call
-  bookings.value = [
-    {
-      id: 1,
-      navlightSet: 'Set1',
-      pickupDate: '2026-03-01',
-      eventDate: '2026-03-02',
-      returnDate: '2026-03-03',
-      name: 'Alice',
-      email: 'alice@example.com',
-      eventName: 'Rogaine Night',
-    },
-    {
-      id: 2,
-      navlightSet: 'Set2',
-      pickupDate: '2026-03-05',
-      eventDate: '2026-03-06',
-      returnDate: '2026-03-07',
-      name: 'Bob',
-      email: 'bob@example.com',
-      eventName: 'Navlight Challenge',
-    },
-  ]
-})
+async function loadBookings() {
+  try {
+    bookings.value = await fetchBookings()
+    error.value = ''
+  } catch (e) {
+    error.value = e.message || 'Failed to load bookings.'
+  }
+}
+
+onMounted(loadBookings)
+
+defineExpose({ loadBookings })
 </script>
 
 <style scoped>
