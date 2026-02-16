@@ -185,6 +185,9 @@ function buildInvoiceData(booking) {
   const competitors = Number(booking.competitorsEntered || 0);
   const usageCharge = competitors * invoiceUnitCharge;
   const newMissingPunches = calculateNewMissingReturnedPunches(booking);
+  const returnedLostPunches = Array.isArray(booking.returnedLostPunches)
+    ? booking.returnedLostPunches.map(String).filter(Boolean)
+    : [];
   const missingPunchCharge = newMissingPunches.length * missingPunchUnitCharge;
   const totalCharge = usageCharge + missingPunchCharge;
 
@@ -196,6 +199,7 @@ function buildInvoiceData(booking) {
     unitCharge: invoiceUnitCharge,
     usageCharge,
     newMissingPunches,
+    returnedLostPunches,
     missingPunchUnitCharge,
     missingPunchCharge,
     totalCharge,
@@ -216,6 +220,7 @@ function createInvoiceEmailText(booking, invoice) {
     `Usage charge: ${invoice.competitorsEntered} competitors × $${invoice.unitCharge.toFixed(2)} = $${invoice.usageCharge.toFixed(2)}`,
     `Missing returned punches charge: ${invoice.newMissingPunches.length} × $${invoice.missingPunchUnitCharge.toFixed(2)} = $${invoice.missingPunchCharge.toFixed(2)}`,
     `Missing punches: ${invoice.newMissingPunches.join(', ') || 'None'}`,
+    `Lost punches (not charged): ${invoice.returnedLostPunches.join(', ') || 'None'}`,
     `Total charge: $${invoice.totalCharge.toFixed(2)}`,
     `Please pay the total amount to account ${invoice.bankAccountName || 'Not configured'} (${invoice.bankAccountNumber || 'Not configured'}) with reference \"${invoice.paymentReference}\".`,
     '',
@@ -246,6 +251,7 @@ function buildInvoicePdfBuffer(booking, invoice) {
     doc.text(`Usage charge: ${invoice.competitorsEntered} competitors × $${invoice.unitCharge.toFixed(2)} = $${invoice.usageCharge.toFixed(2)}`);
     doc.text(`Missing punches charge: ${invoice.newMissingPunches.length} × $${invoice.missingPunchUnitCharge.toFixed(2)} = $${invoice.missingPunchCharge.toFixed(2)}`);
     doc.text(`   Missing punches: ${invoice.newMissingPunches.join(', ') || 'None'}`);
+    doc.text(`   Lost punches (not charged): ${invoice.returnedLostPunches.join(', ') || 'None'}`);
     doc.text(`Total charge: $${invoice.totalCharge.toFixed(2)}`);
     doc.text(`Please pay to account ${invoice.bankAccountName || 'Not configured'} (${invoice.bankAccountNumber || 'Not configured'}) with reference "${invoice.paymentReference}".`);
 
@@ -288,7 +294,7 @@ app.get('/bookings', (req, res) => {
 
 // POST /bookings
 app.post('/bookings', async (req, res) => {
-  const { navlightSet, pickupDate, eventDate, returnDate, name, email, eventName } = req.body;
+  const { navlightSet, pickupDate, eventDate, returnDate, name, email, eventName, comment } = req.body;
   // Basic validation
   if (!navlightSet || !pickupDate || !eventDate || !returnDate || !name || !email || !eventName) {
     return res.status(400).json({ error: 'All fields are required.' });
@@ -315,6 +321,8 @@ app.post('/bookings', async (req, res) => {
     email,
     eventName,
     status: 'booked',
+    comment: comment || '',
+    returnedLostPunches: [],
   };
   bookings.push(newBooking);
   saveBookings(bookings);
@@ -341,6 +349,11 @@ app.patch('/bookings/:id', requireAdmin, async (req, res) => {
     ...currentBooking,
     ...req.body,
   };
+
+  updatedBooking.comment = req.body.comment ?? currentBooking.comment ?? '';
+  delete updatedBooking.bookingComment;
+  delete updatedBooking.pickupComment;
+  delete updatedBooking.returnComment;
 
   const { navlightSet, pickupDate, eventDate, returnDate, name, email, eventName } = updatedBooking;
 

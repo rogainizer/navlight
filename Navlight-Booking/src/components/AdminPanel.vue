@@ -21,12 +21,16 @@
             Status: {{ normalizeStatus(booking.status) }}
           </div>
           <div v-if="isBookedStatus(booking.status)">
+            <div>
+              Comment: {{ getBookingComment(booking) || 'None' }}
+            </div>
             <button @click="startPickup(booking)">Mark as Picked Up</button>
           </div>
           <div v-if="booking.status === 'pickedup'">
             <div>
               Picked up: {{ formatDisplayDate(booking.actualPickupDate) }}<br>
-              Missing punches: {{ booking.pickupMissingPunches?.join(', ') || 'None' }}
+              Missing punches: {{ booking.pickupMissingPunches?.join(', ') || 'None' }}<br>
+              Comment: {{ getBookingComment(booking) || 'None' }}
             </div>
             <button @click="startReturn(booking)">Mark as Returned</button>
           </div>
@@ -34,7 +38,9 @@
             <div>
               Returned: {{ formatDisplayDate(booking.actualReturnDate) }}<br>
               Missing punches: {{ getNewReturnMissingPunches(booking).join(', ') || 'None' }}<br>
+              Lost punches: {{ booking.returnedLostPunches?.join(', ') || 'None' }}<br>
               Competitors entered: {{ booking.competitorsEntered ?? 'Not set' }}<br>
+              Comment: {{ getBookingComment(booking) || 'None' }}<br>
               Invoice emailed: {{ formatDateTime(booking.invoiceSentAt) || 'Not sent' }}
             </div>
             <button @click="openInvoicePreview(booking)" class="btn">Create Invoice</button>
@@ -78,6 +84,7 @@
             = ${{ Number(invoicePreview.missingPunchCharge).toFixed(2) }}
           </p>
           <p><strong>Missing punches list:</strong> {{ invoicePreview.newMissingPunches.join(', ') || 'None' }}</p>
+          <p><strong>Lost punches (not charged):</strong> {{ invoicePreview.returnedLostPunches?.join(', ') || 'None' }}</p>
           <p><strong>5. Total charge:</strong> ${{ Number(invoicePreview.totalCharge).toFixed(2) }}</p>
           <p>
             <strong>6. Payment instructions:</strong>
@@ -138,12 +145,18 @@
         <label>Pickup Missing Punches (comma separated)</label>
         <input v-model="editForm.pickupMissingPunchesInput" placeholder="e.g. 45,64" />
 
+        <label>Comment</label>
+        <input v-model="editForm.comment" placeholder="Optional comment" />
+
         <label>Actual Return Date</label>
         <input v-model="editForm.actualReturnDate" type="date" />
         <div class="date-preview" v-if="editForm.actualReturnDate">Display format: {{ formatDisplayDate(editForm.actualReturnDate) }}</div>
 
         <label>Return Missing Punches (comma separated)</label>
         <input v-model="editForm.returnMissingPunchesInput" placeholder="e.g. 45,64" />
+
+        <label>Returned Lost Punches (comma separated)</label>
+        <input v-model="editForm.returnedLostPunchesInput" placeholder="e.g. 11,22" />
 
         <label>Competitors Entered</label>
         <input type="number" min="0" step="1" v-model="editForm.competitorsEntered" placeholder="e.g. 120" />
@@ -167,6 +180,9 @@
         <label>Missing Punch Numbers (comma separated)
           <input v-model="pickupMissingPunches" placeholder="e.g. 101,102" />
         </label>
+        <label>Comment
+          <input v-model="comment" placeholder="Optional comment" />
+        </label>
         <div class="dialog-actions">
           <button @click="confirmPickup" class="btn">Confirm</button>
           <button @click="cancelDialog" class="btn secondary">Cancel</button>
@@ -183,6 +199,12 @@
         <input type="number" min="0" step="1" v-model="competitorsEntered" placeholder="e.g. 120" />
         <label>Missing Punch Numbers (comma separated)
           <input v-model="returnMissingPunches" placeholder="e.g. 101,102" />
+        </label>
+        <label>Lost Punch Numbers (comma separated)
+          <input v-model="returnedLostPunches" placeholder="e.g. 11,22" />
+        </label>
+        <label>Comment
+          <input v-model="comment" placeholder="Optional comment" />
         </label>
         <div class="dialog-actions">
           <button @click="confirmReturn" class="btn">Confirm</button>
@@ -210,6 +232,8 @@ const pickupDate = ref('')
 const pickupMissingPunches = ref('')
 const returnDate = ref('')
 const returnMissingPunches = ref('')
+const returnedLostPunches = ref('')
+const comment = ref('')
 const competitorsEntered = ref('')
 const editError = ref('')
 const editForm = ref({
@@ -226,6 +250,8 @@ const editForm = ref({
   pickupMissingPunchesInput: '',
   actualReturnDate: '',
   returnMissingPunchesInput: '',
+  returnedLostPunchesInput: '',
+  comment: '',
   competitorsEntered: '',
   invoiceSentAt: '',
 })
@@ -261,6 +287,10 @@ function getNewReturnMissingPunches(booking) {
     : []
 
   return returnMissing.filter((punch) => !pickupMissing.includes(punch))
+}
+
+function getBookingComment(booking) {
+  return booking?.comment || ''
 }
 
 function formatDateTime(value) {
@@ -317,16 +347,25 @@ onMounted(() => {
 function startPickup(booking) {
   currentBooking = booking
   pickupDate.value = booking.pickupDate || ''
-  pickupMissingPunches.value = ''
+  pickupMissingPunches.value = Array.isArray(booking.pickupMissingPunches)
+    ? booking.pickupMissingPunches.join(', ')
+    : ''
+  comment.value = getBookingComment(booking)
   showPickupDialog.value = true
 }
 function startReturn(booking) {
   currentBooking = booking
   returnDate.value = booking.returnDate || ''
   competitorsEntered.value = booking.competitorsEntered != null ? String(booking.competitorsEntered) : ''
-  returnMissingPunches.value = Array.isArray(booking.pickupMissingPunches)
-    ? booking.pickupMissingPunches.join(', ')
+  returnMissingPunches.value = Array.isArray(booking.returnMissingPunches)
+    ? booking.returnMissingPunches.join(', ')
+    : Array.isArray(booking.pickupMissingPunches)
+      ? booking.pickupMissingPunches.join(', ')
+      : ''
+  returnedLostPunches.value = Array.isArray(booking.returnedLostPunches)
+    ? booking.returnedLostPunches.join(', ')
     : ''
+  comment.value = getBookingComment(booking)
   showReturnDialog.value = true
 }
 
@@ -346,6 +385,8 @@ function startEdit(booking) {
     pickupMissingPunchesInput: Array.isArray(booking.pickupMissingPunches) ? booking.pickupMissingPunches.join(', ') : '',
     actualReturnDate: booking.actualReturnDate || '',
     returnMissingPunchesInput: Array.isArray(booking.returnMissingPunches) ? booking.returnMissingPunches.join(', ') : '',
+    returnedLostPunchesInput: Array.isArray(booking.returnedLostPunches) ? booking.returnedLostPunches.join(', ') : '',
+    comment: getBookingComment(booking),
     competitorsEntered: booking.competitorsEntered != null ? String(booking.competitorsEntered) : '',
     invoiceSentAt: booking.invoiceSentAt || '',
   }
@@ -382,6 +423,11 @@ async function saveEdit() {
         .split(',')
         .map(s => s.trim())
         .filter(Boolean),
+      returnedLostPunches: editForm.value.returnedLostPunchesInput
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean),
+      comment: editForm.value.comment,
       competitorsEntered: editForm.value.competitorsEntered === '' ? undefined : Number(editForm.value.competitorsEntered),
     }, adminToken.value)
 
@@ -398,6 +444,8 @@ async function saveEdit() {
 function cancelDialog() {
   showPickupDialog.value = false
   showReturnDialog.value = false
+  comment.value = ''
+  returnedLostPunches.value = ''
   currentBooking = null
 }
 async function confirmPickup() {
@@ -408,6 +456,7 @@ async function confirmPickup() {
       status: 'pickedup',
       actualPickupDate: pickupDate.value,
       pickupMissingPunches: pickupMissingPunches.value.split(',').map(s => s.trim()).filter(Boolean),
+      comment: comment.value,
     }, adminToken.value)
     await loadBookings()
     emit('bookings-updated')
@@ -426,6 +475,8 @@ async function confirmReturn() {
       actualReturnDate: returnDate.value,
       competitorsEntered: competitorsEntered.value === '' ? undefined : Number(competitorsEntered.value),
       returnMissingPunches: returnMissingPunches.value.split(',').map(s => s.trim()).filter(Boolean),
+      returnedLostPunches: returnedLostPunches.value.split(',').map(s => s.trim()).filter(Boolean),
+      comment: comment.value,
     }, adminToken.value)
     await loadBookings()
     emit('bookings-updated')

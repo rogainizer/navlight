@@ -42,6 +42,11 @@
       </select>
     </div>
 
+    <div class="field">
+      <label for="comment">Comment</label>
+      <input id="comment" v-model="form.comment" placeholder="Optional comment" />
+    </div>
+
     <div v-if="error" class="error">{{ error }}</div>
     <div v-if="success" class="success">{{ success }}</div>
 
@@ -63,6 +68,7 @@ const form = ref({
   eventDate: '',
   returnDate: '',
   navlightSet: '',
+  comment: '',
 })
 
 const error = ref('')
@@ -96,6 +102,7 @@ async function submitBooking() {
       eventDate: '',
       returnDate: '',
       navlightSet: '',
+      comment: '',
     }
   } catch (e) {
     error.value = e.message || 'Failed to submit booking.'
