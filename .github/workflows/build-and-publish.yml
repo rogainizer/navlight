@@ -1,0 +1,85 @@
+name: Build and Publish Containers
+
+on:
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/navlight-frontend
+  BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/navlight-backend
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./Navlight-Booking-Server
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+            ${{ env.BACKEND_IMAGE }}:latest
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./Navlight-Booking
+          push: true
+          platforms: linux/amd64
+          build-args: |
+            VITE_API_URL=${{ vars.PUBLIC_API_URL }}
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+            ${{ env.FRONTEND_IMAGE }}:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && secrets.DROPLET_SSH_KEY != '' && secrets.DROPLET_IP != '' && secrets.DEPLOY_ENV_FILE != ''
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare deployment env file
+        run: |
+          mkdir -p deploy
+          printf "%s" "${{ secrets.DEPLOY_ENV_FILE }}" > deploy/.env.production
+          {
+            echo "NAVLIGHT_BACKEND_TAG=${GITHUB_SHA}"
+            echo "NAVLIGHT_FRONTEND_TAG=${GITHUB_SHA}"
+          } >> deploy/.env.production
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.DROPLET_SSH_KEY }}
+
+      - name: Add droplet to known_hosts
+        run: |
+          ssh-keyscan -H "${{ secrets.DROPLET_IP }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy to droplet
+        env:
+          DROPLET_IP: ${{ secrets.DROPLET_IP }}
+          DROPLET_USER: root
+        run: |
+          chmod +x scripts/deploy-droplet.sh
+          scripts/deploy-droplet.sh

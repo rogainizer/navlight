@@ -32,7 +32,7 @@ services:
     build:
       context: ./Navlight-Booking
       args:
-        VITE_API_URL: http://localhost:3001
+        VITE_API_URL: ${PUBLIC_API_URL:?PUBLIC_API_URL is required}
     depends_on:
       - backend
     ports:

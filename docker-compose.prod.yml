@@ -1,0 +1,21 @@
+services:
+  navlight-backend:
+    image: ghcr.io/rogainizer/navlight-backend:${NAVLIGHT_BACKEND_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - ./deploy/.env.production
+    networks:
+      - proxy
+
+  navlight-frontend:
+    image: ghcr.io/rogainizer/navlight-frontend:${NAVLIGHT_FRONTEND_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - navlight-backend
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
+    name: ${NAVLIGHT_NETWORK:-proxy-net}
