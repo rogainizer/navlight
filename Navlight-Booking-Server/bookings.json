@@ -24,5 +24,18 @@
     "status": "booked",
     "comment": "",
     "returnedLostPunches": []
+  },
+  {
+    "id": 1771626742232,
+    "navlightSet": "Set2",
+    "pickupDate": "2026-03-27",
+    "eventDate": "2026-04-11",
+    "returnDate": "2026-04-27",
+    "name": "Tim Farrant",
+    "email": "rogainespecialist@gmail.com",
+    "eventName": "Kaikoura Adventure Race",
+    "status": "booked",
+    "comment": "",
+    "returnedLostPunches": []
   }
 ]

@@ -1,0 +1,42 @@
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is required}
+      MYSQL_DATABASE: ${DB_NAME:?DB_NAME is required}
+      MYSQL_USER: ${DB_USER:?DB_USER is required}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    volumes:
+      - db_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+
+  backend:
+    build:
+      context: ./Navlight-Booking-Server
+    env_file:
+      - ./Navlight-Booking-Server/.env
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:?DB_USER is required}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_NAME: ${DB_NAME:?DB_NAME is required}
+    depends_on:
+      - db
+    ports:
+      - "3001:3001"
+
+  frontend:
+    build:
+      context: ./Navlight-Booking
+      args:
+        VITE_API_URL: http://localhost:3001
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  db_data:

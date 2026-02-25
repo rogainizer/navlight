@@ -1,18 +1,39 @@
 
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
 const cors = require('cors');
 const nodemailer = require('nodemailer');
 const PDFDocument = require('pdfkit');
+const mysql = require('mysql2/promise');
 require('dotenv').config();
 
 const app = express();
-const PORT = 3001;
-const BOOKINGS_FILE = path.join(__dirname, 'bookings.json');
+const PORT = Number(process.env.PORT || 3001);
 
 app.use(cors());
 app.use(express.json());
+
+const DB_HOST = process.env.DB_HOST || 'localhost';
+const DB_PORT = process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306;
+const DB_USER = process.env.DB_USER;
+const DB_PASSWORD = process.env.DB_PASSWORD;
+const DB_NAME = process.env.DB_NAME;
+
+if (!DB_USER || !DB_PASSWORD || !DB_NAME) {
+  throw new Error('Database credentials (DB_USER, DB_PASSWORD, DB_NAME) must be provided via environment variables.');
+}
+
+const pool = mysql.createPool({
+  host: DB_HOST,
+  port: DB_PORT,
+  user: DB_USER,
+  password: DB_PASSWORD,
+  database: DB_NAME,
+  waitForConnections: true,
+  connectionLimit: 10,
+});
+
+const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const smtpHost = process.env.SMTP_HOST;
 const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
@@ -43,7 +64,10 @@ const emailTransporter = smtpHost && smtpUser && smtpPass
   : null;
 
 // Simple admin password (in production, use env var and HTTPS)
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'navlightadmin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) {
+  throw new Error('ADMIN_PASSWORD must be set to secure admin endpoints.');
+}
 
 // In-memory token store (for demo; use sessions/DB for production)
 const adminTokens = new Set();
@@ -68,16 +92,108 @@ function requireAdmin(req, res, next) {
   res.status(401).json({ error: 'Unauthorized' });
 }
 
-// Helper: Load bookings
-function loadBookings() {
-  if (!fs.existsSync(BOOKINGS_FILE)) return [];
-  const data = fs.readFileSync(BOOKINGS_FILE);
-  return JSON.parse(data);
+function parseBookingRow(row) {
+  if (!row) return null;
+  const data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+  if (!data.id) {
+    data.id = row.id;
+  }
+  return data;
 }
 
-// Helper: Save bookings
-function saveBookings(bookings) {
-  fs.writeFileSync(BOOKINGS_FILE, JSON.stringify(bookings, null, 2));
+async function getAllBookings() {
+  const [rows] = await pool.query('SELECT data FROM bookings ORDER BY pickup_date');
+  return rows.map(parseBookingRow);
+}
+
+async function findBookingById(id) {
+  const [rows] = await pool.query('SELECT data FROM bookings WHERE id = ? LIMIT 1', [id]);
+  return parseBookingRow(rows[0]);
+}
+
+async function insertBookingRecord(booking) {
+  await pool.execute(
+    `INSERT INTO bookings (id, navlight_set, pickup_date, event_date, return_date, status, data)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      booking.id,
+      booking.navlightSet,
+      booking.pickupDate,
+      booking.eventDate,
+      booking.returnDate,
+      booking.status,
+      JSON.stringify(booking),
+    ],
+  );
+}
+
+async function updateBookingRecord(booking) {
+  await pool.execute(
+    `UPDATE bookings
+     SET navlight_set = ?, pickup_date = ?, event_date = ?, return_date = ?, status = ?, data = ?, updated_at = NOW()
+     WHERE id = ?`,
+    [
+      booking.navlightSet,
+      booking.pickupDate,
+      booking.eventDate,
+      booking.returnDate,
+      booking.status,
+      JSON.stringify(booking),
+      booking.id,
+    ],
+  );
+}
+
+async function deleteBookingRecord(id) {
+  await pool.execute('DELETE FROM bookings WHERE id = ?', [id]);
+}
+
+async function hasDateConflict(navlightSet, pickupDate, returnDate, excludeId) {
+  const params = [navlightSet, returnDate, pickupDate];
+  let query =
+    'SELECT 1 FROM bookings WHERE navlight_set = ? AND NOT (? < pickup_date OR ? > return_date)';
+  if (excludeId) {
+    query += ' AND id <> ?';
+    params.push(excludeId);
+  }
+  query += ' LIMIT 1';
+  const [rows] = await pool.query(query, params);
+  return rows.length > 0;
+}
+
+async function ensureDatabaseConnection(retries = 10) {
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    try {
+      const connection = await pool.getConnection();
+      await connection.ping();
+      connection.release();
+      return;
+    } catch (error) {
+      if (attempt === retries) {
+        throw error;
+      }
+      await sleep(attempt * 500);
+    }
+  }
+}
+
+async function initializeDatabase() {
+  await ensureDatabaseConnection();
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS bookings (
+      id BIGINT NOT NULL,
+      navlight_set VARCHAR(64) NOT NULL,
+      pickup_date DATE NOT NULL,
+      event_date DATE NOT NULL,
+      return_date DATE NOT NULL,
+      status VARCHAR(32) NOT NULL DEFAULT 'booked',
+      data JSON NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_navlight_dates (navlight_set, pickup_date, return_date)
+    )
+  `);
 }
 
 async function sendBookingConfirmationEmail(booking) {
@@ -287,13 +403,16 @@ async function sendInvoiceEmail(booking) {
 }
 
 // GET /bookings
-app.get('/bookings', (req, res) => {
-  const bookings = loadBookings();
-  res.json(bookings);
-});
+app.get(
+  '/bookings',
+  asyncHandler(async (req, res) => {
+    const bookings = await getAllBookings();
+    res.json(bookings);
+  }),
+);
 
 // POST /bookings
-app.post('/bookings', async (req, res) => {
+app.post('/bookings', asyncHandler(async (req, res) => {
   const { navlightSet, pickupDate, eventDate, returnDate, name, email, eventName, comment } = req.body;
   // Basic validation
   if (!navlightSet || !pickupDate || !eventDate || !returnDate || !name || !email || !eventName) {
@@ -302,12 +421,7 @@ app.post('/bookings', async (req, res) => {
   if (!(pickupDate <= eventDate && eventDate <= returnDate)) {
     return res.status(400).json({ error: 'Dates must be in order: Pickup ≤ Event ≤ Return.' });
   }
-  // Prevent overlapping bookings for same set
-  const bookings = loadBookings();
-  const overlap = bookings.some(b =>
-    b.navlightSet === navlightSet &&
-    !(returnDate < b.pickupDate || pickupDate > b.returnDate)
-  );
+  const overlap = await hasDateConflict(navlightSet, pickupDate, returnDate);
   if (overlap) {
     return res.status(409).json({ error: 'Navlight set is already booked for these dates.' });
   }
@@ -324,8 +438,7 @@ app.post('/bookings', async (req, res) => {
     comment: comment || '',
     returnedLostPunches: [],
   };
-  bookings.push(newBooking);
-  saveBookings(bookings);
+  await insertBookingRecord(newBooking);
 
   try {
     await sendBookingConfirmationEmail(newBooking);
@@ -334,17 +447,15 @@ app.post('/bookings', async (req, res) => {
   }
 
   res.status(201).json(newBooking);
-});
+}));
 
 
 // PATCH /bookings/:id (update pickup/return info)
-app.patch('/bookings/:id', requireAdmin, async (req, res) => {
+app.patch('/bookings/:id', requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const bookings = loadBookings();
-  const idx = bookings.findIndex(b => b.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Booking not found.' });
+  const currentBooking = await findBookingById(id);
+  if (!currentBooking) return res.status(404).json({ error: 'Booking not found.' });
 
-  const currentBooking = bookings[idx];
   const updatedBooking = {
     ...currentBooking,
     ...req.body,
@@ -365,11 +476,7 @@ app.patch('/bookings/:id', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Dates must be in order: Pickup ≤ Event ≤ Return.' });
   }
 
-  const overlap = bookings.some(b =>
-    b.id !== id &&
-    b.navlightSet === navlightSet &&
-    !(returnDate < b.pickupDate || pickupDate > b.returnDate)
-  );
+  const overlap = await hasDateConflict(navlightSet, pickupDate, returnDate, id);
 
   if (overlap) {
     return res.status(409).json({ error: 'Navlight set is already booked for these dates.' });
@@ -377,8 +484,7 @@ app.patch('/bookings/:id', requireAdmin, async (req, res) => {
 
   const shouldSendPickupEmail = currentBooking.status !== 'pickedup' && updatedBooking.status === 'pickedup';
 
-  bookings[idx] = updatedBooking;
-  saveBookings(bookings);
+  await updateBookingRecord(updatedBooking);
 
   if (shouldSendPickupEmail) {
     try {
@@ -389,30 +495,25 @@ app.patch('/bookings/:id', requireAdmin, async (req, res) => {
   }
 
   res.json(updatedBooking);
-});
+}));
 
 // DELETE /bookings/:id
-app.delete('/bookings/:id', requireAdmin, (req, res) => {
+app.delete('/bookings/:id', requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  let bookings = loadBookings();
-  const idx = bookings.findIndex(b => b.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Booking not found.' });
-  bookings = bookings.filter(b => b.id !== id);
-  saveBookings(bookings);
+  const booking = await findBookingById(id);
+  if (!booking) return res.status(404).json({ error: 'Booking not found.' });
+  await deleteBookingRecord(id);
   res.status(204).end();
-});
+}));
 
 // POST /bookings/:id/send-invoice
-app.get('/bookings/:id/invoice-preview', requireAdmin, (req, res) => {
+app.get('/bookings/:id/invoice-preview', requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const bookings = loadBookings();
-  const idx = bookings.findIndex(b => b.id === id);
+  const booking = await findBookingById(id);
 
-  if (idx === -1) {
+  if (!booking) {
     return res.status(404).json({ error: 'Booking not found.' });
   }
-
-  const booking = bookings[idx];
 
   if (booking.status !== 'returned') {
     return res.status(400).json({ error: 'Invoice can only be created for returned bookings.' });
@@ -424,19 +525,16 @@ app.get('/bookings/:id/invoice-preview', requireAdmin, (req, res) => {
 
   const invoice = buildInvoiceData(booking);
   return res.json({ invoice });
-});
+}));
 
 // GET /bookings/:id/invoice-pdf
-app.get('/bookings/:id/invoice-pdf', requireAdmin, async (req, res) => {
+app.get('/bookings/:id/invoice-pdf', requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const bookings = loadBookings();
-  const idx = bookings.findIndex(b => b.id === id);
+  const booking = await findBookingById(id);
 
-  if (idx === -1) {
+  if (!booking) {
     return res.status(404).json({ error: 'Booking not found.' });
   }
-
-  const booking = bookings[idx];
 
   if (booking.status !== 'returned') {
     return res.status(400).json({ error: 'Invoice can only be created for returned bookings.' });
@@ -462,19 +560,16 @@ app.get('/bookings/:id/invoice-pdf', requireAdmin, async (req, res) => {
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Failed to generate invoice PDF.' });
   }
-});
+}));
 
 // POST /bookings/:id/send-invoice
-app.post('/bookings/:id/send-invoice', requireAdmin, async (req, res) => {
+app.post('/bookings/:id/send-invoice', requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const bookings = loadBookings();
-  const idx = bookings.findIndex(b => b.id === id);
+  const booking = await findBookingById(id);
 
-  if (idx === -1) {
+  if (!booking) {
     return res.status(404).json({ error: 'Booking not found.' });
   }
-
-  const booking = bookings[idx];
 
   if (booking.status !== 'returned') {
     return res.status(400).json({ error: 'Invoice can only be created for returned bookings.' });
@@ -487,14 +582,25 @@ app.post('/bookings/:id/send-invoice', requireAdmin, async (req, res) => {
   try {
     const invoice = await sendInvoiceEmail(booking);
     booking.invoiceSentAt = new Date().toISOString();
-    bookings[idx] = booking;
-    saveBookings(bookings);
+    await updateBookingRecord(booking);
     return res.json({ success: true, invoice });
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Failed to send invoice email.' });
   }
+}));
+
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: 'Internal server error.' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Navlight Booking backend running on port ${PORT}`);
-});
+initializeDatabase()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Navlight Booking backend running on port ${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error('Failed to initialize database:', error);
+    process.exit(1);
+  });

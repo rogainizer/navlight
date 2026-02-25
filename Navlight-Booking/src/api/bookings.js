@@ -1,15 +1,45 @@
+const API_URL = import.meta.env.VITE_API_URL;
+
+if (!API_URL) {
+  throw new Error('VITE_API_URL is not defined. Set it in your environment before building the frontend.');
+}
+
+async function parseJsonResponse(res, defaultMessage) {
+  if (!res.ok) {
+    let message = defaultMessage;
+    try {
+      const error = await res.json();
+      message = error.error || message;
+    } catch {
+      // Ignore JSON parse errors and keep default message
+    }
+    throw new Error(message);
+  }
+  return res.json();
+}
+
+async function ensureSuccess(res, defaultMessage) {
+  if (!res.ok) {
+    let message = defaultMessage;
+    try {
+      const error = await res.json();
+      message = error.error || message;
+    } catch {
+      // Ignore JSON parse errors and keep default message
+    }
+    throw new Error(message);
+  }
+}
+
 export async function adminLogin(password) {
   const res = await fetch(`${API_URL}/admin/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password }),
   });
-  if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.error || 'Login failed');
-  }
-  return await res.json();
+  return parseJsonResponse(res, 'Login failed');
 }
+
 export async function updateBooking(id, updates, adminToken) {
   const res = await fetch(`${API_URL}/bookings/${id}`, {
     method: 'PATCH',
@@ -19,11 +49,7 @@ export async function updateBooking(id, updates, adminToken) {
     },
     body: JSON.stringify(updates),
   });
-  if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.error || 'Failed to update booking');
-  }
-  return await res.json();
+  return parseJsonResponse(res, 'Failed to update booking');
 }
 
 export async function deleteBooking(id, adminToken) {
@@ -31,10 +57,7 @@ export async function deleteBooking(id, adminToken) {
     method: 'DELETE',
     headers: adminToken ? { 'x-admin-token': adminToken } : {},
   });
-  if (!res.ok && res.status !== 204) {
-    const error = await res.json();
-    throw new Error(error.error || 'Failed to delete booking');
-  }
+  await ensureSuccess(res, 'Failed to delete booking');
 }
 
 export async function sendInvoice(id, adminToken) {
@@ -42,11 +65,7 @@ export async function sendInvoice(id, adminToken) {
     method: 'POST',
     headers: adminToken ? { 'x-admin-token': adminToken } : {},
   });
-  if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.error || 'Failed to send invoice');
-  }
-  return await res.json();
+  return parseJsonResponse(res, 'Failed to send invoice');
 }
 
 export async function fetchInvoicePreview(id, adminToken) {
@@ -54,11 +73,7 @@ export async function fetchInvoicePreview(id, adminToken) {
     method: 'GET',
     headers: adminToken ? { 'x-admin-token': adminToken } : {},
   });
-  if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.error || 'Failed to load invoice preview');
-  }
-  return await res.json();
+  return parseJsonResponse(res, 'Failed to load invoice preview');
 }
 
 export async function fetchInvoicePdf(id, adminToken) {
@@ -72,21 +87,16 @@ export async function fetchInvoicePdf(id, adminToken) {
       const error = await res.json();
       errorMessage = error.error || errorMessage;
     } catch {
-      // keep default message
+      // Keep default message
     }
     throw new Error(errorMessage);
   }
-  return await res.blob();
+  return res.blob();
 }
-// api/bookings.js
-// Placeholder for API integration
-
-const API_URL = 'http://localhost:3001';
 
 export async function fetchBookings() {
   const res = await fetch(`${API_URL}/bookings`);
-  if (!res.ok) throw new Error('Failed to fetch bookings');
-  return await res.json();
+  return parseJsonResponse(res, 'Failed to fetch bookings');
 }
 
 export async function createBooking(booking) {
@@ -95,9 +105,5 @@ export async function createBooking(booking) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(booking),
   });
-  if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.error || 'Failed to create booking');
-  }
-  return await res.json();
+  return parseJsonResponse(res, 'Failed to create booking');
 }
