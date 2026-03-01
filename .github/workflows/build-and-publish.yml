@@ -66,12 +66,12 @@ jobs:
       - name: Prepare deployment env file
         run: |
           mkdir -p deploy
-          printf "%s" "$DEPLOY_ENV_FILE" > /opt/navlight/.env.production
+          printf "%s" "$DEPLOY_ENV_FILE" > deploy/.env.production
           {
             echo ""
             echo "NAVLIGHT_BACKEND_TAG=${GITHUB_SHA}"
             echo "NAVLIGHT_FRONTEND_TAG=${GITHUB_SHA}"
-          } >> /opt/navlight/.env.production
+          } >> deploy/.env.production
 
       - name: Set up SSH
         uses: webfactory/ssh-agent@v0.9.1
