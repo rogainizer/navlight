@@ -3,9 +3,9 @@ set -euo pipefail
 
 : "${DROPLET_IP?Set DROPLET_IP to the droplet hostname or IP}" 
 : "${DROPLET_USER?Set DROPLET_USER to the SSH username}" 
-REMOTE_PATH=${REMOTE_PATH:-/opt/navlight}
-COMPOSE_FILE=${COMPOSE_FILE:-docker-compose.prod.yml}
-ENV_FILE=${ENV_FILE:-deploy/.env.production}
+REMOTE_PATH=/opt/navlight
+COMPOSE_FILE=docker-compose.prod.yml
+ENV_FILE=/opt/navlight/.env.production
 SSH_OPTS=${SSH_OPTS:--o StrictHostKeyChecking=no}
 
 if [ ! -f "$COMPOSE_FILE" ]; then
