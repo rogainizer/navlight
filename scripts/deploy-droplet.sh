@@ -25,7 +25,7 @@ ssh $SSH_OPTS "$SSH_TARGET" "mkdir -p $REMOTE_PATH"
 scp $SSH_OPTS "$COMPOSE_FILE" "$SSH_TARGET:$REMOTE_PATH/docker-compose.yml"
 scp $SSH_OPTS "$ENV_FILE" "$SSH_TARGET:$REMOTE_PATH/.env"
 
-ssh $SSH_OPTS "$SSH_TARGET" <<"EOF"
+ssh $SSH_OPTS "$SSH_TARGET" <<EOF
 set -euo pipefail
 cd "$REMOTE_PATH"
 docker compose pull
