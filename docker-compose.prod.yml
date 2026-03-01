@@ -4,6 +4,16 @@ services:
     restart: unless-stopped
     env_file:
       - ./deploy/.env.production
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: navlight 
+    expose:
+      - "3001"
     networks:
       - proxy
 
@@ -18,4 +28,4 @@ services:
 networks:
   proxy:
     external: true
-    name: ${NAVLIGHT_NETWORK:-proxy-net}
+    name: rogainizer-proxy
