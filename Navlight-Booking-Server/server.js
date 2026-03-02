@@ -7,6 +7,7 @@ const mysql = require('mysql2/promise');
 require('dotenv').config();
 
 const app = express();
+const api = express.Router();
 const PORT = Number(process.env.PORT || 3001);
 
 app.use(cors());
@@ -74,7 +75,7 @@ if (!ADMIN_PASSWORD) {
 const adminTokens = new Set();
 
 // POST /admin/login
-app.post('/admin/login', (req, res) => {
+api.post('/admin/login', (req, res) => {
   const { password } = req.body;
   if (password === ADMIN_PASSWORD) {
     // Issue a simple token
@@ -404,7 +405,7 @@ async function sendInvoiceEmail(booking) {
 }
 
 // GET /bookings
-app.get(
+api.get(
   '/bookings',
   asyncHandler(async (req, res) => {
     const bookings = await getAllBookings();
@@ -413,7 +414,7 @@ app.get(
 );
 
 // POST /bookings
-app.post('/bookings', asyncHandler(async (req, res) => {
+api.post('/bookings', asyncHandler(async (req, res) => {
   const { navlightSet, pickupDate, eventDate, returnDate, name, email, eventName, comment } = req.body;
   // Basic validation
   if (!navlightSet || !pickupDate || !eventDate || !returnDate || !name || !email || !eventName) {
@@ -452,7 +453,7 @@ app.post('/bookings', asyncHandler(async (req, res) => {
 
 
 // PATCH /bookings/:id (update pickup/return info)
-app.patch('/bookings/:id', requireAdmin, asyncHandler(async (req, res) => {
+api.patch('/bookings/:id', requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const currentBooking = await findBookingById(id);
   if (!currentBooking) return res.status(404).json({ error: 'Booking not found.' });
@@ -499,7 +500,7 @@ app.patch('/bookings/:id', requireAdmin, asyncHandler(async (req, res) => {
 }));
 
 // DELETE /bookings/:id
-app.delete('/bookings/:id', requireAdmin, asyncHandler(async (req, res) => {
+api.delete('/bookings/:id', requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const booking = await findBookingById(id);
   if (!booking) return res.status(404).json({ error: 'Booking not found.' });
@@ -508,7 +509,7 @@ app.delete('/bookings/:id', requireAdmin, asyncHandler(async (req, res) => {
 }));
 
 // POST /bookings/:id/send-invoice
-app.get('/bookings/:id/invoice-preview', requireAdmin, asyncHandler(async (req, res) => {
+api.get('/bookings/:id/invoice-preview', requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const booking = await findBookingById(id);
 
@@ -529,7 +530,7 @@ app.get('/bookings/:id/invoice-preview', requireAdmin, asyncHandler(async (req, 
 }));
 
 // GET /bookings/:id/invoice-pdf
-app.get('/bookings/:id/invoice-pdf', requireAdmin, asyncHandler(async (req, res) => {
+api.get('/bookings/:id/invoice-pdf', requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const booking = await findBookingById(id);
 
@@ -564,7 +565,7 @@ app.get('/bookings/:id/invoice-pdf', requireAdmin, asyncHandler(async (req, res)
 }));
 
 // POST /bookings/:id/send-invoice
-app.post('/bookings/:id/send-invoice', requireAdmin, asyncHandler(async (req, res) => {
+api.post('/bookings/:id/send-invoice', requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const booking = await findBookingById(id);
 
@@ -589,6 +590,8 @@ app.post('/bookings/:id/send-invoice', requireAdmin, asyncHandler(async (req, re
     return res.status(500).json({ error: error.message || 'Failed to send invoice email.' });
   }
 }));
+
+app.use('/api', api);
 
 app.use((err, req, res, next) => {
   console.error(err);
