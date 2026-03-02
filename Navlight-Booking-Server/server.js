@@ -22,6 +22,7 @@ if (!DB_USER || !DB_PASSWORD || !DB_NAME) {
   throw new Error('Database credentials (DB_USER, DB_PASSWORD, DB_NAME) must be provided via environment variables.');
 }
 
+console.log(`Connecting to database at ${DB_HOST}:${DB_PORT} as ${DB_USER} for ${DB_NAME} with password ${DB_PASSWORD};
 const pool = mysql.createPool({
   host: DB_HOST,
   port: DB_PORT,
