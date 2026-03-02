@@ -13,8 +13,10 @@ services:
       DB_PORT: 3306
       DB_USER: root
       DB_NAME: navlight 
-    expose:
+    ports:
       - "3001:3001"
+    expose:
+      - "3001"
     networks:
       - proxy
 
