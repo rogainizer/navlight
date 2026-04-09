@@ -2,6 +2,7 @@
 const express = require('express');
 const cors = require('cors');
 const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const PDFDocument = require('pdfkit');
 const mysql = require('mysql2/promise');
 require('dotenv').config();
@@ -43,6 +44,7 @@ const smtpSecure = process.env.SMTP_SECURE === 'true';
 const smtpUser = process.env.SMTP_USER;
 const smtpPass = process.env.SMTP_PASS;
 const emailFrom = process.env.EMAIL_FROM || smtpUser;
+const resendApiKey = process.env.RESEND_API_KEY || '';
 const invoiceUnitCharge = process.env.INVOICE_UNIT_CHARGE
   ? Number(process.env.INVOICE_UNIT_CHARGE)
   : 2;
@@ -70,6 +72,50 @@ const emailTransporter = smtpHost && smtpUser && smtpPass
       },
     })
   : null;
+const resendClient = resendApiKey ? new Resend(resendApiKey) : null;
+const hasEmailSender = Boolean(emailFrom && (resendClient || emailTransporter));
+
+function parseRecipients(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  return String(value)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+async function sendEmail({ to, bcc, subject, text }) {
+  if (!emailFrom) {
+    throw new Error('Email is not configured: EMAIL_FROM is missing.');
+  }
+
+  const toRecipients = parseRecipients(to);
+  const bccRecipients = parseRecipients(bcc);
+
+  if (resendClient) {
+    await resendClient.emails.send({
+      from: emailFrom,
+      to: toRecipients,
+      ...(bccRecipients.length ? { bcc: bccRecipients } : {}),
+      subject,
+      text,
+    });
+    return;
+  }
+
+  if (emailTransporter) {
+    await emailTransporter.sendMail({
+      from: emailFrom,
+      to: toRecipients.join(', '),
+      ...(bccRecipients.length ? { bcc: bccRecipients.join(', ') } : {}),
+      subject,
+      text,
+    });
+    return;
+  }
+
+  throw new Error('Email is not configured: set RESEND_API_KEY or SMTP settings.');
+}
 
 // Simple admin password (in production, use env var and HTTPS)
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
@@ -205,7 +251,7 @@ async function initializeDatabase() {
 }
 
 async function sendBookingConfirmationEmail(booking) {
-  if (!emailTransporter || !emailFrom || !booking?.email) return;
+  if (!hasEmailSender || !booking?.email) return;
 
   const subject = `Navlight booking confirmed: ${booking.eventName}`;
   const text = [
@@ -225,8 +271,7 @@ async function sendBookingConfirmationEmail(booking) {
     'Thank you.',
   ].join('\n');
 
-  await emailTransporter.sendMail({
-    from: emailFrom,
+  await sendEmail({
     to: booking.email,
     bcc: buildBcc(auditBccEmail),
     subject,
@@ -235,7 +280,7 @@ async function sendBookingConfirmationEmail(booking) {
 }
 
 async function sendPickupConfirmationEmail(booking) {
-  if (!emailTransporter || !emailFrom || !booking?.email) return;
+  if (!hasEmailSender || !booking?.email) return;
 
   const missingPunches = Array.isArray(booking.pickupMissingPunches)
     ? booking.pickupMissingPunches.map(String).filter(Boolean)
@@ -261,8 +306,7 @@ async function sendPickupConfirmationEmail(booking) {
     'Thank you.',
   ].join('\n');
 
-  await emailTransporter.sendMail({
-    from: emailFrom,
+  await sendEmail({
     to: booking.email,
     bcc: buildBcc(auditBccEmail),
     subject,
@@ -387,7 +431,7 @@ function buildInvoicePdfBuffer(booking, invoice) {
 }
 
 async function sendInvoiceEmail(booking) {
-  if (!emailTransporter || !emailFrom || !booking?.email) {
+  if (!hasEmailSender || !booking?.email) {
     throw new Error('Email is not configured or recipient email is missing.');
   }
 
@@ -400,8 +444,7 @@ async function sendInvoiceEmail(booking) {
   const subject = `Invoice for Navlight booking: ${booking.eventName}`;
   const text = createInvoiceEmailText(booking, invoice);
 
-  await emailTransporter.sendMail({
-    from: emailFrom,
+  await sendEmail({
     to: booking.email,
     bcc: buildBcc(auditBccEmail, financialControllerEmail),
     subject,
