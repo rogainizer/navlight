@@ -52,6 +52,12 @@ const missingPunchUnitCharge = process.env.MISSING_PUNCH_CHARGE
 const bankAccountName = process.env.BANK_ACCOUNT_NAME || '';
 const bankAccountNumber = process.env.BANK_ACCOUNT_NUMBER || '';
 const financialControllerEmail = process.env.NAVLIGHT_FINANCIAL_CONTROLLER_EMAIL || '';
+const auditBccEmail = 'rogainizer.nz@gmail.com';
+
+function buildBcc(...emails) {
+  const list = emails.map((email) => String(email || '').trim()).filter(Boolean);
+  return [...new Set(list)].join(', ');
+}
 
 const emailTransporter = smtpHost && smtpUser && smtpPass
   ? nodemailer.createTransport({
@@ -222,7 +228,7 @@ async function sendBookingConfirmationEmail(booking) {
   await emailTransporter.sendMail({
     from: emailFrom,
     to: booking.email,
-    ...(financialControllerEmail ? { bcc: financialControllerEmail } : {}),
+    bcc: buildBcc(auditBccEmail),
     subject,
     text,
   });
@@ -258,7 +264,7 @@ async function sendPickupConfirmationEmail(booking) {
   await emailTransporter.sendMail({
     from: emailFrom,
     to: booking.email,
-    ...(financialControllerEmail ? { bcc: financialControllerEmail } : {}),
+    bcc: buildBcc(auditBccEmail),
     subject,
     text,
   });
@@ -397,6 +403,7 @@ async function sendInvoiceEmail(booking) {
   await emailTransporter.sendMail({
     from: emailFrom,
     to: booking.email,
+    bcc: buildBcc(auditBccEmail, financialControllerEmail),
     subject,
     text,
   });
