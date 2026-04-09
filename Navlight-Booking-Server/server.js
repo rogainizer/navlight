@@ -93,13 +93,26 @@ async function sendEmail({ to, bcc, subject, text }) {
   const bccRecipients = parseRecipients(bcc);
 
   if (resendClient) {
-    await resendClient.emails.send({
+    const result = await resendClient.emails.send({
       from: emailFrom,
       to: toRecipients,
       ...(bccRecipients.length ? { bcc: bccRecipients } : {}),
       subject,
       text,
     });
+
+    if (result?.error) {
+      const resendMessage =
+        typeof result.error === 'string'
+          ? result.error
+          : result.error.message || JSON.stringify(result.error);
+      throw new Error(`Resend email send failed: ${resendMessage}`);
+    }
+
+    if (result?.data?.id) {
+      console.log(`Resend email queued with id ${result.data.id} for ${toRecipients.join(', ')}`);
+    }
+
     return;
   }
 
