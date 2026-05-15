@@ -44,6 +44,7 @@ const smtpSecure = process.env.SMTP_SECURE === 'true';
 const smtpUser = process.env.SMTP_USER;
 const smtpPass = process.env.SMTP_PASS;
 const emailFrom = process.env.EMAIL_FROM || smtpUser;
+const configuredCcEmail = process.env.EMAIL_CC || '';
 const resendApiKey = process.env.RESEND_API_KEY || '';
 const invoiceUnitCharge = process.env.INVOICE_UNIT_CHARGE
   ? Number(process.env.INVOICE_UNIT_CHARGE)
@@ -84,18 +85,24 @@ function parseRecipients(value) {
     .filter(Boolean);
 }
 
-async function sendEmail({ to, bcc, subject, text }) {
+function mergeRecipients(...values) {
+  return [...new Set(values.flatMap(parseRecipients))];
+}
+
+async function sendEmail({ to, cc, bcc, subject, text }) {
   if (!emailFrom) {
     throw new Error('Email is not configured: EMAIL_FROM is missing.');
   }
 
   const toRecipients = parseRecipients(to);
+  const ccRecipients = mergeRecipients(configuredCcEmail, cc);
   const bccRecipients = parseRecipients(bcc);
 
   if (resendClient) {
     const result = await resendClient.emails.send({
       from: emailFrom,
       to: toRecipients,
+      ...(ccRecipients.length ? { cc: ccRecipients } : {}),
       ...(bccRecipients.length ? { bcc: bccRecipients } : {}),
       subject,
       text,
@@ -120,6 +127,7 @@ async function sendEmail({ to, bcc, subject, text }) {
     await emailTransporter.sendMail({
       from: emailFrom,
       to: toRecipients.join(', '),
+      ...(ccRecipients.length ? { cc: ccRecipients.join(', ') } : {}),
       ...(bccRecipients.length ? { bcc: bccRecipients.join(', ') } : {}),
       subject,
       text,

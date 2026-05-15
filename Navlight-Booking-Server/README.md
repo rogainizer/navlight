@@ -29,6 +29,7 @@ See `.env.example` for a complete list. Key values:
 | `ADMIN_PASSWORD` | Simple shared secret for admin token issuance |
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | MySQL connection info |
 | `RESEND_API_KEY`, `EMAIL_FROM` | Preferred mail transport (Resend API) |
+| `EMAIL_CC` | Optional CC recipient added to all outgoing emails |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | SMTP fallback mail transport |
 | `NAVLIGHT_FINANCIAL_CONTROLLER_EMAIL` | Optional BCC for invoices |
 | `BANK_ACCOUNT_NAME`, `BANK_ACCOUNT_NUMBER` | Required for invoices |
