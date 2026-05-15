@@ -18,6 +18,7 @@
             <strong>{{ booking.eventName }}</strong> ({{ booking.navlightSet }})<br>
             Name: {{ booking.name }}<br>
             Pickup: {{ formatDisplayDate(booking.pickupDate) }} | Event: {{ formatDisplayDate(booking.eventDate) }} | Return: {{ formatDisplayDate(booking.returnDate) }}<br>
+            Estimated Number of Tags: {{ booking.estimatedNumberOfTags || 'Not set' }}<br>
             Status: {{ normalizeStatus(booking.status) }}
           </div>
           <div v-if="isBookedStatus(booking.status)">
@@ -40,6 +41,7 @@
               Missing punches: {{ getNewReturnMissingPunches(booking).join(', ') || 'None' }}<br>
               Lost punches: {{ booking.returnedLostPunches?.join(', ') || 'None' }}<br>
               Competitors entered: {{ booking.competitorsEntered ?? 'Not set' }}<br>
+              Courier cost: ${{ formatCurrency(booking.courierCost) }}<br>
               Comment: {{ getBookingComment(booking) || 'None' }}<br>
               Invoice emailed: {{ formatDateTime(booking.invoiceSentAt) || 'Not sent' }}
             </div>
@@ -83,11 +85,15 @@
             {{ invoicePreview.newMissingPunches.length }} × ${{ Number(invoicePreview.missingPunchUnitCharge ?? 200).toFixed(2) }}
             = ${{ Number(invoicePreview.missingPunchCharge).toFixed(2) }}
           </p>
+          <p>
+            <strong>5. Courier cost:</strong>
+            ${{ Number(invoicePreview.courierCost ?? 0).toFixed(2) }}
+          </p>
           <p><strong>Missing punches list:</strong> {{ invoicePreview.newMissingPunches.join(', ') || 'None' }}</p>
           <p><strong>Lost punches (not charged):</strong> {{ invoicePreview.returnedLostPunches?.join(', ') || 'None' }}</p>
-          <p><strong>5. Total charge:</strong> ${{ Number(invoicePreview.totalCharge).toFixed(2) }}</p>
+          <p><strong>6. Total charge:</strong> ${{ Number(invoicePreview.totalCharge).toFixed(2) }}</p>
           <p>
-            <strong>6. Payment instructions:</strong>
+            <strong>7. Payment instructions:</strong>
             Pay to account {{ invoicePreview.bankAccountName || 'Not configured' }}
             ({{ invoicePreview.bankAccountNumber || 'Not configured' }})
             with reference "{{ invoicePreview.paymentReference }}".
@@ -104,65 +110,104 @@
       <div v-if="showEditDialog" class="dialog edit-dialog">
         <h3>Edit Booking</h3>
 
-        <label>Name</label>
-        <input v-model="editForm.name" />
+        <div class="edit-dialog-grid">
+          <div class="edit-field">
+            <label>Name</label>
+            <input v-model="editForm.name" />
+          </div>
 
-        <label>Email</label>
-        <input v-model="editForm.email" type="email" />
+          <div class="edit-field">
+            <label>Email</label>
+            <input v-model="editForm.email" type="email" />
+          </div>
 
-        <label>Navlight Event Name</label>
-        <input v-model="editForm.eventName" />
+          <div class="edit-field edit-field-span-2">
+            <label>Navlight Event Name</label>
+            <input v-model="editForm.eventName" />
+          </div>
 
-        <label>Navlight Set</label>
-        <select v-model="editForm.navlightSet">
-          <option value="Set1">Set 1</option>
-          <option value="Set2">Set 2</option>
-        </select>
+          <div class="edit-field">
+            <label>Navlight Set</label>
+            <select v-model="editForm.navlightSet">
+              <option value="Set1">Set 1</option>
+              <option value="Set2">Set 2</option>
+            </select>
+          </div>
 
-        <label>Pickup Date</label>
-        <input v-model="editForm.pickupDate" type="date" />
-        <div class="date-preview" v-if="editForm.pickupDate">Display format: {{ formatDisplayDate(editForm.pickupDate) }}</div>
+          <div class="edit-field">
+            <label>Status</label>
+            <select v-model="editForm.status">
+              <option value="booked">booked</option>
+              <option value="pickedup">pickedup</option>
+              <option value="returned">returned</option>
+            </select>
+          </div>
 
-        <label>Event Date</label>
-        <input v-model="editForm.eventDate" type="date" />
-        <div class="date-preview" v-if="editForm.eventDate">Display format: {{ formatDisplayDate(editForm.eventDate) }}</div>
+          <div class="edit-field">
+            <label>Pickup Date</label>
+            <input v-model="editForm.pickupDate" type="date" />
+          </div>
 
-        <label>Return Date</label>
-        <input v-model="editForm.returnDate" type="date" />
-        <div class="date-preview" v-if="editForm.returnDate">Display format: {{ formatDisplayDate(editForm.returnDate) }}</div>
+          <div class="edit-field">
+            <label>Actual Pickup Date</label>
+            <input v-model="editForm.actualPickupDate" type="date" />
+          </div>
 
-        <label>Status</label>
-        <select v-model="editForm.status">
-          <option value="booked">booked</option>
-          <option value="pickedup">pickedup</option>
-          <option value="returned">returned</option>
-        </select>
+          <div class="edit-field">
+            <label>Event Date</label>
+            <input v-model="editForm.eventDate" type="date" />
+          </div>
 
-        <label>Actual Pickup Date</label>
-        <input v-model="editForm.actualPickupDate" type="date" />
-        <div class="date-preview" v-if="editForm.actualPickupDate">Display format: {{ formatDisplayDate(editForm.actualPickupDate) }}</div>
+          <div class="edit-field">
+            <label>Return Date</label>
+            <input v-model="editForm.returnDate" type="date" />
+          </div>
 
-        <label>Pickup Missing Punches (comma separated)</label>
-        <input v-model="editForm.pickupMissingPunchesInput" placeholder="e.g. 45,64" />
+          <div class="edit-field">
+            <label>Actual Return Date</label>
+            <input v-model="editForm.actualReturnDate" type="date" />
+          </div>
 
-        <label>Comment</label>
-        <input v-model="editForm.comment" placeholder="Optional comment" />
+          <div class="edit-field">
+            <label>Pickup Missing Punches (comma separated)</label>
+            <input v-model="editForm.pickupMissingPunchesInput" placeholder="e.g. 45,64" />
+          </div>
 
-        <label>Actual Return Date</label>
-        <input v-model="editForm.actualReturnDate" type="date" />
-        <div class="date-preview" v-if="editForm.actualReturnDate">Display format: {{ formatDisplayDate(editForm.actualReturnDate) }}</div>
+          <div class="edit-field">
+            <label>Returned Lost Punches (comma separated)</label>
+            <input v-model="editForm.returnedLostPunchesInput" placeholder="e.g. 11,22" />
+          </div>
 
-        <label>Return Missing Punches (comma separated)</label>
-        <input v-model="editForm.returnMissingPunchesInput" placeholder="e.g. 45,64" />
+          <div class="edit-field">
+            <label>Return Missing Punches (comma separated)</label>
+            <input v-model="editForm.returnMissingPunchesInput" placeholder="e.g. 45,64" />
+          </div>
 
-        <label>Returned Lost Punches (comma separated)</label>
-        <input v-model="editForm.returnedLostPunchesInput" placeholder="e.g. 11,22" />
+          <div class="edit-field">
+            <label>Estimated Number of Tags</label>
+            <input v-model="editForm.estimatedNumberOfTags" placeholder="Optional estimate" />
+          </div>
 
-        <label>Competitors Entered</label>
-        <input type="number" min="0" step="1" v-model="editForm.competitorsEntered" placeholder="e.g. 120" />
+          <div class="edit-field">
+            <label>Competitors Entered</label>
+            <input type="number" min="0" step="1" v-model="editForm.competitorsEntered" placeholder="e.g. 120" />
+          </div>
 
-        <label>Invoice Emailed</label>
-        <input :value="formatDateTime(editForm.invoiceSentAt) || 'Not sent'" readonly />
+          <div class="edit-field">
+            <label>Courier Cost</label>
+            <input type="number" min="0" step="0.01" v-model="editForm.courierCost" placeholder="e.g. 12.50" />
+          </div>
+
+          <div class="edit-field edit-field-span-2">
+            <label>Comment</label>
+            <input v-model="editForm.comment" placeholder="Optional comment" />
+          </div>
+
+          <div class="edit-field edit-field-span-2">
+            <label>Invoice Emailed</label>
+            <input :value="formatDateTime(editForm.invoiceSentAt) || 'Not sent'" readonly />
+          </div>
+        </div>
 
         <div v-if="editError" class="error">{{ editError }}</div>
         <div class="dialog-actions">
@@ -176,7 +221,6 @@
         <h3>Mark as Picked Up</h3>
         <label>Date of Pickup</label>
         <input type="date" v-model="pickupDate" />
-        <div class="date-preview" v-if="pickupDate">Display format: {{ formatDisplayDate(pickupDate) }}</div>
         <label>Missing Punch Numbers (comma separated)
           <input v-model="pickupMissingPunches" placeholder="e.g. 101,102" />
         </label>
@@ -194,9 +238,10 @@
         <h3>Mark as Returned</h3>
         <label>Date of Return</label>
         <input type="date" v-model="returnDate" />
-        <div class="date-preview" v-if="returnDate">Display format: {{ formatDisplayDate(returnDate) }}</div>
         <label>Number of Competitors Entered</label>
         <input type="number" min="0" step="1" v-model="competitorsEntered" placeholder="e.g. 120" />
+        <label>Courier Cost</label>
+        <input type="number" min="0" step="0.01" v-model="courierCost" placeholder="e.g. 12.50" />
         <label>Missing Punch Numbers (comma separated)
           <input v-model="returnMissingPunches" placeholder="e.g. 101,102" />
         </label>
@@ -235,6 +280,7 @@ const returnMissingPunches = ref('')
 const returnedLostPunches = ref('')
 const comment = ref('')
 const competitorsEntered = ref('')
+const courierCost = ref('0')
 const editError = ref('')
 const editForm = ref({
   id: null,
@@ -253,6 +299,7 @@ const editForm = ref({
   returnedLostPunchesInput: '',
   comment: '',
   competitorsEntered: '',
+  courierCost: '0',
   invoiceSentAt: '',
 })
 let currentBooking = null
@@ -307,6 +354,11 @@ function formatDateTime(value) {
   })
 }
 
+function formatCurrency(value) {
+  const amount = Number(value || 0)
+  return Number.isFinite(amount) ? amount.toFixed(2) : '0.00'
+}
+
 async function login() {
   loginError.value = ''
   try {
@@ -357,6 +409,7 @@ function startReturn(booking) {
   currentBooking = booking
   returnDate.value = booking.returnDate || ''
   competitorsEntered.value = booking.competitorsEntered != null ? String(booking.competitorsEntered) : ''
+  courierCost.value = booking.courierCost != null ? String(booking.courierCost) : '0'
   returnMissingPunches.value = Array.isArray(booking.returnMissingPunches)
     ? booking.returnMissingPunches.join(', ')
     : Array.isArray(booking.pickupMissingPunches)
@@ -387,7 +440,9 @@ function startEdit(booking) {
     returnMissingPunchesInput: Array.isArray(booking.returnMissingPunches) ? booking.returnMissingPunches.join(', ') : '',
     returnedLostPunchesInput: Array.isArray(booking.returnedLostPunches) ? booking.returnedLostPunches.join(', ') : '',
     comment: getBookingComment(booking),
+    estimatedNumberOfTags: booking.estimatedNumberOfTags || '',
     competitorsEntered: booking.competitorsEntered != null ? String(booking.competitorsEntered) : '',
+    courierCost: booking.courierCost != null ? String(booking.courierCost) : '0',
     invoiceSentAt: booking.invoiceSentAt || '',
   }
   showEditDialog.value = true
@@ -428,7 +483,9 @@ async function saveEdit() {
         .map(s => s.trim())
         .filter(Boolean),
       comment: editForm.value.comment,
+      estimatedNumberOfTags: editForm.value.estimatedNumberOfTags,
       competitorsEntered: editForm.value.competitorsEntered === '' ? undefined : Number(editForm.value.competitorsEntered),
+      courierCost: editForm.value.courierCost === '' ? 0 : Number(editForm.value.courierCost),
     }, adminToken.value)
 
     await loadBookings()
@@ -446,6 +503,7 @@ function cancelDialog() {
   showReturnDialog.value = false
   comment.value = ''
   returnedLostPunches.value = ''
+  courierCost.value = '0'
   currentBooking = null
 }
 async function confirmPickup() {
@@ -474,6 +532,7 @@ async function confirmReturn() {
       status: 'returned',
       actualReturnDate: returnDate.value,
       competitorsEntered: competitorsEntered.value === '' ? undefined : Number(competitorsEntered.value),
+      courierCost: courierCost.value === '' ? 0 : Number(courierCost.value),
       returnMissingPunches: returnMissingPunches.value.split(',').map(s => s.trim()).filter(Boolean),
       returnedLostPunches: returnedLostPunches.value.split(',').map(s => s.trim()).filter(Boolean),
       comment: comment.value,
@@ -673,7 +732,23 @@ input:focus {
 .edit-dialog {
   max-height: 80vh;
   overflow-y: auto;
-  min-width: 460px;
+  min-width: 720px;
+}
+
+.edit-dialog-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.edit-field-span-2 {
+  grid-column: span 2;
 }
 
 .delete-dialog {
@@ -724,11 +799,18 @@ label {
   margin-top: 4px;
 }
 
-.date-preview {
-  margin-top: -4px;
-  margin-bottom: 4px;
-  font-size: 12px;
-  color: #475569;
+@media (max-width: 820px) {
+  .edit-dialog {
+    min-width: min(92vw, 460px);
+  }
+
+  .edit-dialog-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .edit-field-span-2 {
+    grid-column: span 1;
+  }
 }
 
 .error {

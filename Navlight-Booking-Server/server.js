@@ -280,6 +280,7 @@ async function sendBookingConfirmationEmail(booking) {
     '',
     'The charges will be calculated based on the number of competitors entered and any missing punches after the event.',
     `The charge per competitor is $${invoiceUnitCharge.toFixed(2)}, and any missing punch will incur a $${missingPunchUnitCharge.toFixed(2)} charge.`,
+    'The cost of couriering the set to/from the event is paid by the event organizer.',
     'You will receive an invoice after the return date.',
     'Thank you.',
   ].join('\n');
@@ -365,12 +366,13 @@ function calculateNewMissingReturnedPunches(booking) {
 function buildInvoiceData(booking) {
   const competitors = Number(booking.competitorsEntered || 0);
   const usageCharge = competitors * invoiceUnitCharge;
+  const courierCost = Number(booking.courierCost || 0);
   const newMissingPunches = calculateNewMissingReturnedPunches(booking);
   const returnedLostPunches = Array.isArray(booking.returnedLostPunches)
     ? booking.returnedLostPunches.map(String).filter(Boolean)
     : [];
   const missingPunchCharge = newMissingPunches.length * missingPunchUnitCharge;
-  const totalCharge = usageCharge + missingPunchCharge;
+  const totalCharge = usageCharge + missingPunchCharge + courierCost;
 
   return {
     eventName: booking.eventName,
@@ -379,6 +381,7 @@ function buildInvoiceData(booking) {
     competitorsEntered: competitors,
     unitCharge: invoiceUnitCharge,
     usageCharge,
+    courierCost,
     newMissingPunches,
     returnedLostPunches,
     missingPunchUnitCharge,
@@ -400,6 +403,7 @@ function createInvoiceEmailText(booking, invoice) {
     `Event date: ${invoice.eventDateDisplay}`,
     `Usage charge: ${invoice.competitorsEntered} competitors × $${invoice.unitCharge.toFixed(2)} = $${invoice.usageCharge.toFixed(2)}`,
     `Missing returned punches charge: ${invoice.newMissingPunches.length} × $${invoice.missingPunchUnitCharge.toFixed(2)} = $${invoice.missingPunchCharge.toFixed(2)}`,
+    `Courier cost: $${invoice.courierCost.toFixed(2)}`,
     `Missing punches: ${invoice.newMissingPunches.join(', ') || 'None'}`,
     `Lost punches (not charged): ${invoice.returnedLostPunches.join(', ') || 'None'}`,
     `Total charge: $${invoice.totalCharge.toFixed(2)}`,
@@ -431,6 +435,7 @@ function buildInvoicePdfBuffer(booking, invoice) {
     doc.text(`Event date: ${invoice.eventDateDisplay}`);
     doc.text(`Usage charge: ${invoice.competitorsEntered} competitors × $${invoice.unitCharge.toFixed(2)} = $${invoice.usageCharge.toFixed(2)}`);
     doc.text(`Missing punches charge: ${invoice.newMissingPunches.length} × $${invoice.missingPunchUnitCharge.toFixed(2)} = $${invoice.missingPunchCharge.toFixed(2)}`);
+    doc.text(`Courier cost: $${invoice.courierCost.toFixed(2)}`);
     doc.text(`   Missing punches: ${invoice.newMissingPunches.join(', ') || 'None'}`);
     doc.text(`   Lost punches (not charged): ${invoice.returnedLostPunches.join(', ') || 'None'}`);
     doc.text(`Total charge: $${invoice.totalCharge.toFixed(2)}`);
@@ -478,7 +483,7 @@ api.get(
 
 // POST /bookings
 api.post('/bookings', asyncHandler(async (req, res) => {
-  const { navlightSet, pickupDate, eventDate, returnDate, name, email, eventName, comment } = req.body;
+  const { navlightSet, pickupDate, eventDate, returnDate, name, email, eventName, comment, estimatedNumberOfTags } = req.body;
   // Basic validation
   if (!navlightSet || !pickupDate || !eventDate || !returnDate || !name || !email || !eventName) {
     return res.status(400).json({ error: 'All fields are required.' });
@@ -501,6 +506,7 @@ api.post('/bookings', asyncHandler(async (req, res) => {
     eventName,
     status: 'booked',
     comment: comment || '',
+    estimatedNumberOfTags: estimatedNumberOfTags || '',
     returnedLostPunches: [],
   };
   await insertBookingRecord(newBooking);
@@ -527,9 +533,15 @@ api.patch('/bookings/:id', requireAdmin, asyncHandler(async (req, res) => {
   };
 
   updatedBooking.comment = req.body.comment ?? currentBooking.comment ?? '';
+  updatedBooking.estimatedNumberOfTags = req.body.estimatedNumberOfTags ?? currentBooking.estimatedNumberOfTags ?? '';
+  updatedBooking.courierCost = req.body.courierCost == null ? Number(currentBooking.courierCost || 0) : Number(req.body.courierCost);
   delete updatedBooking.bookingComment;
   delete updatedBooking.pickupComment;
   delete updatedBooking.returnComment;
+
+  if (!Number.isFinite(updatedBooking.courierCost) || updatedBooking.courierCost < 0) {
+    return res.status(400).json({ error: 'Courier cost must be a non-negative number.' });
+  }
 
   const { navlightSet, pickupDate, eventDate, returnDate, name, email, eventName } = updatedBooking;
 

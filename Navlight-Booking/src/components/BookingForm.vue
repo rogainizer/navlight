@@ -47,6 +47,15 @@
       <input id="comment" v-model="form.comment" placeholder="Optional comment" />
     </div>
 
+    <div class="field">
+      <label for="estimatedNumberOfTags">Estimated Number of Tags</label>
+      <input
+        id="estimatedNumberOfTags"
+        v-model="form.estimatedNumberOfTags"
+        placeholder="Optional estimate"
+      />
+    </div>
+
     <div v-if="error" class="error">{{ error }}</div>
     <div v-if="success" class="success">{{ success }}</div>
 
@@ -69,6 +78,7 @@ const form = ref({
   returnDate: '',
   navlightSet: '',
   comment: '',
+  estimatedNumberOfTags: '',
 })
 
 const error = ref('')
@@ -103,6 +113,7 @@ async function submitBooking() {
       returnDate: '',
       navlightSet: '',
       comment: '',
+      estimatedNumberOfTags: '',
     }
   } catch (e) {
     error.value = e.message || 'Failed to submit booking.'

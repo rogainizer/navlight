@@ -15,10 +15,12 @@ Vue 3 + Vite single-page app that manages Navlight equipment bookings. It talks 
 
 ## Environment Variables
 - Frontend uses `VITE_API_URL` to know where the backend lives.
-  - Create `Navlight-Booking/.env.local` (ignored by git) and set `VITE_API_URL=http://localhost:3001` for local dev.
+  - Create `Navlight-Booking/.env.local` (ignored by git) and set `VITE_API_URL=http://localhost:3001/api` for local dev.
   - Docker builds pass `VITE_API_URL` as a build arg so the static bundle points to the in-cluster backend service.
 
 ## Local Development Workflow
+Run `../start-dev.ps1` from the repository root to launch the local MySQL container, backend, and frontend in one step. This local workflow assumes Docker Desktop is running. Add `-InstallDependencies` on the first run if `node_modules` folders have not been created yet.
+
 1. **Provision MySQL**
   ```sql
   CREATE DATABASE IF NOT EXISTS navlight;

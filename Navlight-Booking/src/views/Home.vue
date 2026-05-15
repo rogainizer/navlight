@@ -1,9 +1,11 @@
 
 <template>
   <div class="menu" role="tablist" aria-label="Main navigation">
-    <button :class="['tab-btn', { active: view === 'calendar' }]" @click="view = 'calendar'">Calendar</button>
-    <button :class="['tab-btn', { active: view === 'booking' }]" @click="view = 'booking'">Book Navlight</button>
-    <button :class="['tab-btn', { active: view === 'admin' }]" @click="view = 'admin'">Admin</button>
+    <div class="menu-group">
+      <button :class="['tab-btn', { active: view === 'calendar' }]" @click="view = 'calendar'">Calendar</button>
+      <button :class="['tab-btn', { active: view === 'booking' }]" @click="view = 'booking'">Book Navlight</button>
+    </div>
+    <button :class="['tab-btn', 'admin-tab', { active: view === 'admin' }]" @click="view = 'admin'">Admin</button>
   </div>
   <div class="panel" v-if="view === 'calendar'">
     <BookingCalendar :bookings="bookings" />
@@ -40,10 +42,19 @@ onMounted(refreshBookings)
 <style scoped>
 .menu {
   display: flex;
-  gap: 8px;
+  align-items: center;
   margin-bottom: 16px;
   border-bottom: 1px solid #e8edf5;
   padding-bottom: 12px;
+}
+
+.menu-group {
+  display: flex;
+  gap: 8px;
+}
+
+.admin-tab {
+  margin-left: auto;
 }
 
 .tab-btn {
@@ -70,5 +81,21 @@ onMounted(refreshBookings)
 
 .panel {
   padding-top: 6px;
+}
+
+@media (max-width: 640px) {
+  .menu {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .menu-group {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .admin-tab {
+    margin-left: 0;
+  }
 }
 </style>
