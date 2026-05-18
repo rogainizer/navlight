@@ -223,6 +223,144 @@ async function deleteBookingRecord(id) {
   await pool.execute('DELETE FROM bookings WHERE id = ?', [id]);
 }
 
+function parsePunchIssueRow(row) {
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    set: row.navlight_set,
+    punch: row.punch,
+    issue: row.issue,
+    resolution: row.resolution || '',
+    status: row.status,
+    dateOpened: row.date_opened,
+    dateResolved: row.date_resolved,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function currentDateString() {
+  const now = new Date();
+  const year = String(now.getFullYear());
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeOptionalDate(value) {
+  if (value == null) return null;
+
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return { error: 'Dates must use YYYY-MM-DD format.' };
+  }
+
+  return trimmed;
+}
+
+async function getAllPunchIssues() {
+  const [rows] = await pool.query(`
+    SELECT id, navlight_set, punch, issue, resolution, status, date_opened, date_resolved, created_at, updated_at
+    FROM punch_issues
+    ORDER BY status = 'resolved', date_opened DESC, updated_at DESC, id DESC
+  `);
+  return rows.map(parsePunchIssueRow);
+}
+
+async function createPunchIssueRecord(issue) {
+  const [result] = await pool.execute(
+    `INSERT INTO punch_issues (navlight_set, punch, issue, resolution, status, date_opened, date_resolved)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [issue.set, issue.punch, issue.issue, issue.resolution || '', issue.status, issue.dateOpened, issue.dateResolved],
+  );
+
+  const [rows] = await pool.query(
+    `SELECT id, navlight_set, punch, issue, resolution, status, date_opened, date_resolved, created_at, updated_at
+     FROM punch_issues
+     WHERE id = ?
+     LIMIT 1`,
+    [result.insertId],
+  );
+
+  return parsePunchIssueRow(rows[0]);
+}
+
+async function updatePunchIssueRecord(id, issue) {
+  await pool.execute(
+    `UPDATE punch_issues
+     SET navlight_set = ?, punch = ?, issue = ?, resolution = ?, status = ?, date_opened = ?, date_resolved = ?, updated_at = NOW()
+     WHERE id = ?`,
+    [issue.set, issue.punch, issue.issue, issue.resolution || '', issue.status, issue.dateOpened, issue.dateResolved, id],
+  );
+
+  const [rows] = await pool.query(
+    `SELECT id, navlight_set, punch, issue, resolution, status, date_opened, date_resolved, created_at, updated_at
+     FROM punch_issues
+     WHERE id = ?
+     LIMIT 1`,
+    [id],
+  );
+
+  return parsePunchIssueRow(rows[0]);
+}
+
+async function findPunchIssueById(id) {
+  const [rows] = await pool.query(
+    `SELECT id, navlight_set, punch, issue, resolution, status, date_opened, date_resolved, created_at, updated_at
+     FROM punch_issues
+     WHERE id = ?
+     LIMIT 1`,
+    [id],
+  );
+
+  return parsePunchIssueRow(rows[0]);
+}
+
+async function deletePunchIssueRecord(id) {
+  await pool.execute('DELETE FROM punch_issues WHERE id = ?', [id]);
+}
+
+function normalizePunchIssuePayload(payload, currentIssue) {
+  const normalizedOpenedDate = normalizeOptionalDate(payload?.dateOpened ?? currentIssue?.dateOpened ?? null);
+  if (normalizedOpenedDate && typeof normalizedOpenedDate === 'object' && normalizedOpenedDate.error) {
+    return normalizedOpenedDate;
+  }
+
+  const normalizedResolvedDate = normalizeOptionalDate(payload?.dateResolved ?? currentIssue?.dateResolved ?? null);
+  if (normalizedResolvedDate && typeof normalizedResolvedDate === 'object' && normalizedResolvedDate.error) {
+    return normalizedResolvedDate;
+  }
+
+  const normalized = {
+    set: String(payload?.set ?? currentIssue?.set ?? '').trim(),
+    punch: String(payload?.punch ?? currentIssue?.punch ?? '').trim(),
+    issue: String(payload?.issue ?? currentIssue?.issue ?? '').trim(),
+    resolution: String(payload?.resolution ?? currentIssue?.resolution ?? '').trim(),
+    status: String(payload?.status ?? currentIssue?.status ?? 'open').trim().toLowerCase(),
+    dateOpened: normalizedOpenedDate || currentDateString(),
+    dateResolved: normalizedResolvedDate,
+  };
+
+  if (!normalized.set || !normalized.punch || !normalized.issue) {
+    return { error: 'Set, punch, and issue are required.' };
+  }
+
+  if (!['open', 'resolved'].includes(normalized.status)) {
+    return { error: 'Status must be either open or resolved.' };
+  }
+
+  if (normalized.status === 'resolved') {
+    normalized.dateResolved = normalized.dateResolved || currentDateString();
+  } else {
+    normalized.dateResolved = null;
+  }
+
+  return { value: normalized };
+}
+
 async function hasDateConflict(navlightSet, pickupDate, returnDate, excludeId) {
   const params = [navlightSet, returnDate, pickupDate];
   let query =
@@ -267,6 +405,24 @@ async function initializeDatabase() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       KEY idx_navlight_dates (navlight_set, pickup_date, return_date)
+    )
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS punch_issues (
+      id BIGINT NOT NULL AUTO_INCREMENT,
+      navlight_set VARCHAR(64) NOT NULL,
+      punch VARCHAR(64) NOT NULL,
+      issue TEXT NOT NULL,
+      resolution TEXT NOT NULL,
+      status VARCHAR(16) NOT NULL DEFAULT 'open',
+      date_opened DATE NOT NULL DEFAULT (CURRENT_DATE),
+      date_resolved DATE NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_punch_issues_status (status, updated_at),
+      KEY idx_punch_issues_set_punch (navlight_set, punch)
     )
   `);
 }
@@ -672,6 +828,56 @@ api.post('/bookings/:id/send-invoice', requireAdmin, asyncHandler(async (req, re
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Failed to send invoice email.' });
   }
+}));
+
+// GET /punch-issues
+api.get('/punch-issues', requireAdmin, asyncHandler(async (req, res) => {
+  const issues = await getAllPunchIssues();
+  res.json(issues);
+}));
+
+// POST /punch-issues
+api.post('/punch-issues', requireAdmin, asyncHandler(async (req, res) => {
+  const { value, error } = normalizePunchIssuePayload(req.body);
+
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  const issue = await createPunchIssueRecord(value);
+  return res.status(201).json(issue);
+}));
+
+// PATCH /punch-issues/:id
+api.patch('/punch-issues/:id', requireAdmin, asyncHandler(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const currentIssue = await findPunchIssueById(id);
+
+  if (!currentIssue) {
+    return res.status(404).json({ error: 'Punch issue not found.' });
+  }
+
+  const { value, error } = normalizePunchIssuePayload(req.body, currentIssue);
+
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  const issue = await updatePunchIssueRecord(id, value);
+  return res.json(issue);
+}));
+
+// DELETE /punch-issues/:id
+api.delete('/punch-issues/:id', requireAdmin, asyncHandler(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const currentIssue = await findPunchIssueById(id);
+
+  if (!currentIssue) {
+    return res.status(404).json({ error: 'Punch issue not found.' });
+  }
+
+  await deletePunchIssueRecord(id);
+  return res.status(204).end();
 }));
 
 app.use('/api', api);

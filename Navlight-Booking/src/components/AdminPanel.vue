@@ -12,6 +12,12 @@
     <div v-else>
       <div v-if="actionError" class="error action-error">{{ actionError }}</div>
       <div v-if="actionSuccess" class="success action-success">{{ actionSuccess }}</div>
+      <div class="admin-view-tabs">
+        <button :class="['btn', adminView === 'bookings' ? '' : 'secondary']" @click="adminView = 'bookings'">Bookings</button>
+        <button :class="['btn', adminView === 'issues' ? '' : 'secondary']" @click="adminView = 'issues'">Punch Issues</button>
+      </div>
+
+      <template v-if="adminView === 'bookings'">
       <ul v-if="bookings.length">
         <li v-for="booking in bookings" :key="booking.id" class="admin-booking">
           <div>
@@ -256,6 +262,9 @@
           <button @click="cancelDialog" class="btn secondary">Cancel</button>
         </div>
       </div>
+      </template>
+
+      <PunchIssuesPanel v-else :admin-token="adminToken" @session-expired="expireAdminSession" />
     </div>
   </div>
 </template>
@@ -263,6 +272,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { fetchBookings, updateBooking, deleteBooking as apiDeleteBooking, adminLogin, sendInvoice, fetchInvoicePreview, fetchInvoicePdf } from '../api/bookings.js'
+import PunchIssuesPanel from './PunchIssuesPanel.vue'
 import { formatDisplayDate } from '../utils/dateFormat.js'
 
 const emit = defineEmits(['bookings-updated'])
@@ -306,7 +316,8 @@ let currentBooking = null
 const pendingDeleteBooking = ref(null)
 
 const adminPassword = ref('')
-const adminToken = ref(localStorage.getItem('adminToken') || '')
+const adminToken = ref('')
+const adminView = ref('bookings')
 const loginError = ref('')
 const actionError = ref('')
 const actionSuccess = ref('')
@@ -359,12 +370,19 @@ function formatCurrency(value) {
   return Number.isFinite(amount) ? amount.toFixed(2) : '0.00'
 }
 
+function expireAdminSession() {
+  adminToken.value = ''
+  localStorage.removeItem('adminToken')
+  bookings.value = []
+  actionError.value = 'Your admin session expired. Please log in again.'
+}
+
 async function login() {
   loginError.value = ''
   try {
     const { token } = await adminLogin(adminPassword.value)
     adminToken.value = token
-    localStorage.setItem('adminToken', token)
+    adminView.value = 'bookings'
     await loadBookings()
   } catch (e) {
     loginError.value = e.message || 'Login failed'
@@ -378,10 +396,7 @@ async function loadBookings() {
 function handleAdminError(error, fallbackMessage) {
   const message = error?.message || fallbackMessage
   if (message.toLowerCase().includes('unauthorized')) {
-    adminToken.value = ''
-    localStorage.removeItem('adminToken')
-    bookings.value = []
-    actionError.value = 'Your admin session expired. Please log in again.'
+    expireAdminSession()
     return
   }
   actionError.value = message
@@ -393,7 +408,7 @@ function clearActionMessages() {
 }
 
 onMounted(() => {
-  if (adminToken.value) loadBookings()
+  localStorage.removeItem('adminToken')
 })
 
 function startPickup(booking) {
@@ -652,6 +667,12 @@ ul {
   margin: 0;
 }
 
+.admin-view-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
 input {
   border: 1px solid #d3dce8;
   border-radius: 10px;
@@ -821,7 +842,19 @@ label {
   padding: 8px 10px;
 }
 
+.success {
+  color: #166534;
+  background: #edfdf3;
+  border: 1px solid #b7ebc6;
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
 .action-error {
+  margin-bottom: 12px;
+}
+
+.action-success {
   margin-bottom: 12px;
 }
 </style>

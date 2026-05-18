@@ -107,3 +107,42 @@ export async function createBooking(booking) {
   });
   return parseJsonResponse(res, 'Failed to create booking');
 }
+
+export async function fetchPunchIssues(adminToken) {
+  const res = await fetch(`${API_URL}/punch-issues`, {
+    headers: adminToken ? { 'x-admin-token': adminToken } : {},
+  });
+  return parseJsonResponse(res, 'Failed to fetch punch issues');
+}
+
+export async function createPunchIssue(issue, adminToken) {
+  const res = await fetch(`${API_URL}/punch-issues`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(adminToken ? { 'x-admin-token': adminToken } : {}),
+    },
+    body: JSON.stringify(issue),
+  });
+  return parseJsonResponse(res, 'Failed to create punch issue');
+}
+
+export async function updatePunchIssue(id, issue, adminToken) {
+  const res = await fetch(`${API_URL}/punch-issues/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(adminToken ? { 'x-admin-token': adminToken } : {}),
+    },
+    body: JSON.stringify(issue),
+  });
+  return parseJsonResponse(res, 'Failed to update punch issue');
+}
+
+export async function deletePunchIssue(id, adminToken) {
+  const res = await fetch(`${API_URL}/punch-issues/${id}`, {
+    method: 'DELETE',
+    headers: adminToken ? { 'x-admin-token': adminToken } : {},
+  });
+  await ensureSuccess(res, 'Failed to delete punch issue');
+}
